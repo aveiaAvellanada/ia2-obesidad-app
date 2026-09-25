@@ -1,0 +1,80 @@
+{
+    // Configuraciones para el panel "Ejecutar y depurar" (Ctrl+Shift+D) de VS Code.
+    // Elige una en el desplegable de arriba y pulsa el ▶ verde (o F5).
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Menú principal (main.py)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "justMyCode": true
+        },
+        {
+            "name": "Etapa 01 — EDA (menú de pasos)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/etapas/e01_eda.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "Etapa 02 — Clasificación (menú de pasos)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/etapas/e02_clasificacion.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "Etapa 03 — Regresión (menú de pasos)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/etapas/e03_regresion.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "Etapa 04 — Clustering (menú de pasos)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/etapas/e04_clustering.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "Un paso concreto (pregunta etapa y paso)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "args": ["${input:etapa}", "${input:paso}"],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "TODO el proyecto (run_all.py, sólo guarda PNG)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/run_all.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        }
+    ],
+    "inputs": [
+        {
+            "id": "etapa",
+            "type": "pickString",
+            "description": "¿Qué etapa?",
+            "options": ["01", "02", "03", "04"],
+            "default": "02"
+        },
+        {
+            "id": "paso",
+            "type": "promptString",
+            "description": "¿Qué paso? (ej. 3.4). Mira la lista en GUIA.md",
+            "default": "3.4"
+        }
+    ]
+}

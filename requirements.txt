@@ -1,0 +1,13 @@
+# Dependencias del proyecto (sin Jupyter)
+ucimlrepo>=0.0.7
+pandas>=2.2
+numpy>=1.26
+scikit-learn>=1.5
+scipy>=1.13
+matplotlib>=3.9
+seaborn>=0.13
+joblib>=1.4
+# Backend gráfico para abrir las VENTANAS de matplotlib. El Python del sistema no trae
+# tkinter y PyQt6 >= 6.5 exige la librería del sistema libxcb-cursor0 (sudo apt install
+# libxcb-cursor0); PyQt5 se instala con pip, sin permisos de administrador, y funciona.
+PyQt5>=5.15

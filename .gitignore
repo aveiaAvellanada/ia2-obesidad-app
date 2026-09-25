@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+# Entornos virtuales: .venv (Linux), .venv-1 (el creado en Windows), etc.
+.venv/
+.venv*/
+venv/
+# Datos derivados (se regeneran con la etapa 01) y caché de modelos
+data/clf.csv
+data/reg.csv
+cache/
+# Figuras generadas (se regeneran con run_all.py)
+figures/
+.DS_Store
+Thumbs.db
