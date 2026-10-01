@@ -92,8 +92,8 @@ def test_el_paso_de_numero_de_arboles_apunta_a_n_arboles():
     from etapas import e02_clasificacion as e02
     paso = e02.etapa.buscar("3.7")
     assert "N_ARBOLES" in paso.parametros
-    assert paso.linea_parametros.startswith("parámetros: N_ARBOLES etapas/e02_clasificacion.py:")
-    assert _linea(paso.linea_parametros.split()[2]).startswith("N_ARBOLES = [")
+    assert paso.linea_parametros.startswith("N_ARBOLES etapas/e02_clasificacion.py:")
+    assert _linea(paso.linea_parametros.split()[1]).startswith("N_ARBOLES = [")
 
 
 def test_la_semilla_se_resuelve_en_config_y_va_en_la_cabecera(capsys):
@@ -106,7 +106,7 @@ def test_la_semilla_se_resuelve_en_config_y_va_en_la_cabecera(capsys):
     cabecera = next(l for l in salida_menu if "Comunes a todos los pasos:" in l)
     assert "RANDOM_STATE config.py:" in cabecera and "datos etapas/e02_clasificacion.py:" in cabecera
     i = next(i for i, l in enumerate(salida_menu) if l.lstrip().startswith("[ 3.7]"))
-    assert salida_menu[i + 1].strip().startswith("parámetros: N_ARBOLES ")
+    assert salida_menu[i + 1].strip().startswith("N_ARBOLES etapas/e02_clasificacion.py:")
 
 
 def test_un_paso_sin_parametros_externos_no_lleva_segunda_linea(capsys):

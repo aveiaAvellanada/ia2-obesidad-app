@@ -75,10 +75,13 @@ def ubicar(nombre: str, espacio: dict) -> str:
     return _asignacion(archivo, partes[-1]) if archivo else ""
 
 
-def _linea_ubicaciones(titulo, nombres, espacio) -> str:
-    """'parámetros: N_ARBOLES etapas/e02_clasificacion.py:287 · make_models ...:96'."""
+def _linea_ubicaciones(nombres, espacio, titulo="") -> str:
+    """'N_ARBOLES etapas/e02_clasificacion.py:287 · make_models ...:96' (con 'titulo: '
+    delante si se da uno)."""
     trozos = [f"{n} {ubicar(n, espacio) or '(no encontrado)'}" for n in nombres]
-    return f"{titulo}: " + " · ".join(trozos) if trozos else ""
+    if not trozos:
+        return ""
+    return (f"{titulo}: " if titulo else "") + " · ".join(trozos)
 
 
 @dataclass
@@ -93,7 +96,7 @@ class Paso:
 
     @property
     def linea_parametros(self) -> str:
-        return _linea_ubicaciones("parámetros", self.parametros, self.fn.__globals__)
+        return _linea_ubicaciones(self.parametros, self.fn.__globals__)
 
     @property
     def ubicacion(self) -> str:
@@ -144,8 +147,8 @@ class Etapa:
     def linea_globales(self) -> str:
         if not self.pasos:
             return ""
-        return _linea_ubicaciones("Comunes a todos los pasos", self.globales,
-                                  self.pasos[0].fn.__globals__)
+        return _linea_ubicaciones(self.globales, self.pasos[0].fn.__globals__,
+                                  "Comunes a todos los pasos")
 
     @property
     def carpeta_figuras(self):
