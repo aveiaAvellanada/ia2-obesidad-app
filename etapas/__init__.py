@@ -1,1 +1,1 @@
-"""Las cuatro etapas del proyecto, una por archivo. Ver GUIA.md."""
+"""Las cinco etapas del proyecto, una por archivo."""

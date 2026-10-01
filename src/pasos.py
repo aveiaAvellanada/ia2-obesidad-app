@@ -2,20 +2,26 @@
 
 Cada etapa (e01_eda.py, e02_clasificacion.py, ...) crea una `Etapa` y registra
 funciones con el decorador `@etapa.paso("3.4", "título", figuras=4)`.
-La numeración coincide con las secciones de los notebooks originales y con
-la guía de estudio, para que "ir a 3.4" signifique lo mismo en todos lados.
+La numeración coincide con las secciones de los notebooks originales,
+para que "ir a 3.4" signifique lo mismo en todos lados.
 
 Cualquier paso puede ejecutarse solo: si necesita modelos entrenados, la etapa
 los calcula bajo demanda (y los deja en caché). Ver `cli()` para las opciones
 de línea de comandos y `menu()` para el menú interactivo.
 """
 import argparse
+import inspect
 import sys
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Callable
 
 from src import salida, cache
+
+# Raíz del proyecto (src/pasos.py está en <raiz>/src/), para mostrar rutas relativas
+# como "etapas/e02_clasificacion.py:412" en vez de una ruta absoluta.
+_RAIZ_PROYECTO = Path(__file__).resolve().parents[1]
 
 
 @dataclass
@@ -26,9 +32,25 @@ class Paso:
     figuras: int = 0
 
     @property
+    def ubicacion(self) -> str:
+        """'etapas/e02_clasificacion.py:412': archivo (relativo a la raíz del
+        proyecto) y línea donde empieza la función real de este paso, obtenidos
+        en tiempo de ejecución con inspect.getsourcelines() — nunca se escriben a
+        mano, así que no se desactualizan si el archivo cambia. Formato sin
+        espacios (archivo:línea) para que la terminal integrada de VS Code lo
+        detecte como enlace clickeable."""
+        try:
+            archivo = Path(inspect.getfile(self.fn)).resolve().relative_to(_RAIZ_PROYECTO)
+            _, linea = inspect.getsourcelines(self.fn)
+            return f"{archivo.as_posix()}:{linea}"
+        except (OSError, TypeError, ValueError):
+            return ""
+
+    @property
     def etiqueta(self):
         figs = f"  ({self.figuras} figura{'s' if self.figuras != 1 else ''})" if self.figuras else ""
-        return f"[{self.id:>4}] {self.titulo}{figs}"
+        ubi = f"  {self.ubicacion}" if self.ubicacion else ""
+        return f"[{self.id:>4}] {self.titulo}{figs}{ubi}"
 
 
 @dataclass
@@ -50,9 +72,9 @@ class Etapa:
     def carpeta_figuras(self):
         return f"{self.numero}_{self.slug}"
 
-    def figura(self, fig, nombre: str):
+    def figura(self, fig, nombre: str, datos=None):
         """Atajo: guarda/muestra una figura en la carpeta de esta etapa."""
-        salida.mostrar(fig, nombre, self.carpeta_figuras)
+        salida.mostrar(fig, nombre, self.carpeta_figuras, datos=datos)
 
     # ---- ejecución ----
     def buscar(self, id: str) -> Paso:

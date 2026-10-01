@@ -16,14 +16,15 @@ Dos variantes:
 - B. Sin Weight ni Height: como NObeyesdad se define por IMC = Weight/Height², la variante A
   tiene fuga de datos (ver etapa 01). B mide cuánto predicen por sí solos los hábitos.
 
-Pasos (misma numeración que el notebook y la guía de estudio):
+Pasos (misma numeración que el notebook):
   1    Datos y split                     3.5  Postpoda (ccp_alpha)
   2    Modelos y grillas                 3.6  Curva del mejor K de KNN (A)
   3    Variante A: tabla de resultados   4    Variante B: resultados, reportes, matrices, importancias
   3.1  Reportes + matrices de confusión  4.1  Curva del mejor K de KNN (B)
   3.2  Importancia de features (RF)      5    Comparación final A vs B
-  3.3  Árbol de GridSearch (dibujo)      6    Conclusiones
+  3.3  Árbol de GridSearch (dibujo)
   3.4  Tres árboles: completo/podado/muy podado   7  Robustez ante ruido (jittering)
+                                         8    Sólo filas reales (sin SMOTE) y sin Weight/Height
 
 Los GridSearch tardan ~40 s la primera vez; después quedan en cache/ y cargan al instante.
 """
@@ -37,10 +38,11 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+from sklearn.dummy import DummyClassifier
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import accuracy_score, classification_report, f1_score
-from sklearn.model_selection import (GridSearchCV, StratifiedKFold, cross_val_score,
-                                     train_test_split)
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, f1_score
+from sklearn.model_selection import (GridSearchCV, RepeatedStratifiedKFold, StratifiedKFold,
+                                     cross_val_score, cross_validate, train_test_split)
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
@@ -49,12 +51,12 @@ from sklearn.tree import DecisionTreeClassifier, plot_tree
 from config import RANDOM_STATE
 from src import cache
 from src.data import TARGET_CLF
-from src.evaluation import (clf_metrics, plot_confusion, plot_k_curve,
+from src.evaluation import (clf_metrics, metricas_por_clase, plot_confusion, plot_k_curve,
                             plot_n_estimators_curve, plot_pruning_curve,
                             results_table, tree_summary)
 from src.pasos import Etapa, cli
 from src.preprocessing import CLASS_ORDER, cargar_clf
-from src.salida import nota, subtitulo, tabla
+from src.salida import subtitulo, tabla
 
 etapa = Etapa("02", "Clasificación de NObeyesdad", "clasificacion",
               "Árbol, Random Forest y KNN en dos variantes (con y sin Weight/Height)")
@@ -129,6 +131,12 @@ def variante(tag: str):
     return fitted, tabla_res, X_tr, X_te
 
 
+def tabla_por_clase(y_true, y_pred, titulo):
+    """Tabla TP/FN/FP/TN/Precision/Recall/F1 por clase de la matriz de confusión (test)."""
+    cm = confusion_matrix(y_true, y_pred, labels=CLASS_ORDER)
+    tabla(metricas_por_clase(cm, CLASS_ORDER), titulo, 3)
+
+
 def arboles_prepoda():
     """Los tres árboles del paso 3.4 entrenados sobre el train de la variante A."""
     if "arboles" not in _estado:
@@ -154,11 +162,6 @@ def paso_1_datos():
     print("features:", d["X"].columns.tolist())
     tabla((d["y_train"].value_counts(normalize=True).reindex(CLASS_ORDER) * 100).round(1)
           .rename("% en train"), "Distribución de clases en train (%)", 1)
-    nota("""
-    `stratify=y` garantiza que las 7 clases tengan la misma proporción en train y test.
-    El test (418 filas) se usa UNA sola vez por modelo, al final; todas las decisiones de
-    hiperparámetros se toman con validación cruzada dentro del train (1669 filas).
-    """)
 
 
 # ----------------------------------------------------------------------------
@@ -171,11 +174,6 @@ def paso_2_modelos():
         print("   modelo:", model)
         for k, v in grid.items():
             print(f"   {k}: {v}")
-    nota("""
-    GridSearchCV prueba todas las combinaciones de la grilla con 5-fold estratificado y se queda
-    con la de mayor macro-F1 promedio. Para KNN se prueban K impares de 1 a 31 y dos formas de
-    votar (uniform / distance): ésa es "la rutinita" para elegir el mejor K (pasos 3.6 y 4.1).
-    """)
 
 
 # ----------------------------------------------------------------------------
@@ -185,11 +183,6 @@ def paso_2_modelos():
 def paso_3_variante_A():
     _, tabla_A, _, _ = variante("A")
     tabla(tabla_A, "Variante A — macro-F1 en CV y métricas en test")
-    nota("""
-    Random Forest gana (acc 0.957 / macro-F1 0.956), seguido del árbol (0.938) y KNN (0.821).
-    El árbol y RF eligen max_depth=None: con Weight y Height disponibles, cuanto más crecen,
-    mejor reconstruyen los cortes de IMC. KNN elige K=1 (ver paso 3.6).
-    """)
 
 
 @etapa.paso("3.1", "Variante A: reportes por clase y matrices de confusión (test)", figuras=1)
@@ -210,11 +203,8 @@ def paso_3_1_reportes_A():
     for ax, (name, gs) in zip(axes, fitted.items()):
         plot_confusion(y_test, gs.predict(X_te), CLASS_ORDER, f"{name} (A)", ax=ax)
     etapa.figura(fig, "3.1_matrices_confusion_A")
-    nota("""
-    Las confusiones restantes están entre clases CONTIGUAS (Overweight_I <-> Overweight_II,
-    Normal <-> Overweight_I): los niveles de obesidad son intervalos consecutivos de IMC y los
-    errores caen justo en las fronteras. Obesity_Type_III es casi perfecta en los tres modelos.
-    """)
+    for name, gs in fitted.items():
+        tabla_por_clase(y_test, gs.predict(X_te), f"Métricas por clase — {name} (A)")
 
 
 @etapa.paso("3.2", "Variante A: importancia de features del Random Forest", figuras=1)
@@ -227,11 +217,6 @@ def paso_3_2_importancias_A():
     sns.barplot(x=imp.values, y=imp.index, ax=ax, color="steelblue")
     ax.set_title("Importancia de features — Random Forest (A)")
     etapa.figura(fig, "3.2_importancias_rf_A")
-    nota("""
-    Weight es de lejos la más importante (0.31, tres veces la siguiente), luego Age, Height y
-    FCVC: el modelo está reconstruyendo el IMC más algunas correcciones. Es la fuga de datos
-    vista desde las importancias.
-    """)
 
 
 @etapa.paso("3.3", "Variante A: árbol de decisión elegido por GridSearch (primeros 3 niveles)", figuras=1)
@@ -248,21 +233,6 @@ def paso_3_3_arbol_gridsearch():
 
 @etapa.paso("3.4", "Tres árboles: completo, podado y muy podado (prepoda)", figuras=4)
 def paso_3_4_tres_arboles():
-    nota("""
-    El profesor pidió ver TRES árboles: uno completo, uno podado "un poquito" y uno con poda
-    muy agresiva. Se entrenan a mano sobre el train de la variante A (sin GridSearch), con
-    PREPODA: se limita el crecimiento antes de entrenar con max_depth y min_samples_leaf.
-
-    | Árbol      | max_depth | min_samples_leaf |
-    |------------|-----------|------------------|
-    | Completo   | sin límite| 1                |
-    | Podado     | 6         | 5                |
-    | Muy podado | 3         | 10               |
-
-    Para cada uno se muestra el dibujo (los dos primeros truncados a 3 niveles sólo para el
-    dibujo; el muy podado completo), su profundidad, número de hojas y el atributo de la raíz
-    con su umbral. criterion="gini" (por defecto).
-    """)
     d = datos()
     X, y_train, y_test = d["X"], d["y_train"], d["y_test"]
     resumen = []
@@ -299,33 +269,12 @@ def paso_3_4_tres_arboles():
                        f"Árbol {nombre} — acc test {accuracy_score(y_test, y_pred):.3f}",
                        ax=ax, vmin=0, vmax=vmax)
     etapa.figura(fig, "3.4_matrices_tres_arboles")
-
-    nota("""
-    QUÉ PASA AL PODAR.
-
-    - acc_train baja de 1.000 (completo: 16 niveles, 115 hojas, memoriza el train) a 0.913
-      (podado) y 0.649 (muy podado): a menos capacidad, menos ajuste al train. Eso es la poda
-      quitando sobreajuste.
-    - acc_test también baja (0.938 -> 0.888 -> 0.653), pero mucho menos que el train en el podado:
-      la brecha train–test pasa de 0.062 a 0.025. Con 6 niveles el árbol ya captura casi todo lo
-      que generaliza.
-    - El muy podado (3 niveles, 8 hojas) sigue lejos del azar (1/7 ≈ 0.14) porque la raíz corta por
-      Weight ≤ 99.5 kg y los siguientes niveles siguen usando Weight, Height, Age y Gender: con 8
-      hojas para 7 clases está aproximando el IMC a trozos. Con tan pocos cortes se queda sin hoja
-      para Overweight_Level_II (esa columna de la matriz queda en cero) y mezcla Normal_Weight con
-      Overweight_Level_I.
-    - Los tres árboles tienen la MISMA raíz (Weight ≤ 99.536): la poda cambia la profundidad, no
-      el primer corte.
-    """)
+    for nombre, y_pred in preds.items():
+        tabla_por_clase(y_test, y_pred, f"Métricas por clase — árbol {nombre}")
 
 
 @etapa.paso("3.5", "Postpoda por coste-complejidad (ccp_alpha): accuracy train/test vs alpha", figuras=1)
 def paso_3_5_postpoda():
-    nota("""
-    Alternativa a la prepoda: se deja crecer el árbol completo y luego se CORTAN ramas con el
-    parámetro ccp_alpha (poda por coste-complejidad). A mayor alpha, más ramas se eliminan. Se
-    entrena un árbol por cada alpha y se mide accuracy en train y test.
-    """)
     d = datos()
     path = arboles_prepoda()["Completo"].cost_complexity_pruning_path(d["X_train"], d["y_train"])
     alphas = np.unique(path.ccp_alphas)
@@ -343,12 +292,6 @@ def paso_3_5_postpoda():
     i_best = int(np.argmax(score_test))
     print(f"{len(alphas)} valores de alpha | mejor accuracy test = {score_test[i_best]:.3f} "
           f"con ccp_alpha = {alphas[i_best]:.2e}")
-    nota("""
-    PREPODA vs POSTPODA. La prepoda limita el crecimiento antes de entrenar (max_depth,
-    min_samples_leaf); la postpoda corta ramas de un árbol ya crecido (ccp_alpha). Con alpha
-    pequeño el árbol memoriza el train (accuracy 1.0) y el test se mantiene ≈0.94; a partir de
-    alpha ≈ 1e-2 ambas curvas caen juntas porque el árbol queda demasiado simple.
-    """)
 
 
 @etapa.paso("3.6", "Curva del mejor K de KNN — variante A", figuras=1)
@@ -358,16 +301,6 @@ def paso_3_6_curva_k_A():
     ax, mejor_k = plot_k_curve(fitted["KNN"].cv_results_, ax=ax)
     etapa.figura(fig, "3.6_curva_k_knn_A")
     print("Mejor K (variante A):", mejor_k, "| params:", fitted["KNN"].best_params_)
-    nota("""
-    Con esta rutina determinamos que el mejor K era 1 (weights=uniform, macro-F1 de CV 0.815), y
-    el rendimiento baja de forma monótona al aumentar K.
-
-    Que gane K=1 no es lo habitual y tiene explicación: ~77% del dataset es sintético (SMOTE
-    interpola nuevos puntos entre vecinos de la misma clase). Cada fila sintética tiene "hermanas"
-    casi idénticas de su misma clase a distancia mínima, así que el vecino más cercano casi
-    siempre acierta; al ampliar el vecindario entran puntos de clases contiguas y el macro-F1
-    cae. Con datos 100% reales esperaríamos un K óptimo mayor (ver paso 7).
-    """)
 
 
 # ----------------------------------------------------------------------------
@@ -376,7 +309,7 @@ def paso_3_6_curva_k_A():
 N_ARBOLES = [10, 25, 50, 100, 200, 400, 800]
 
 
-def _barrido_n_arboles():
+def _barrido_n_arboles(n_arboles=N_ARBOLES):
     """Para cada nº de árboles: macro-F1 de CV (5 folds), métricas en test y tiempo de fit.
 
     Se usa la variante A y la MISMA validación cruzada estratificada del GridSearch,
@@ -384,7 +317,7 @@ def _barrido_n_arboles():
     """
     d = datos()
     filas = []
-    for n in N_ARBOLES:
+    for n in n_arboles:
         rf = RandomForestClassifier(n_estimators=n, random_state=RANDOM_STATE, n_jobs=-1)
         scores = cross_val_score(rf, d["X_train"], d["y_train"], cv=cv_estratificado(),
                                  scoring="f1_macro", n_jobs=-1)
@@ -404,17 +337,6 @@ def barrido_n_arboles():
 
 @etapa.paso("3.7", "¿Cuántos árboles? Random Forest con 10, 25, 50, 100, 200, 400 y 800", figuras=1)
 def paso_3_7_n_arboles():
-    nota("""
-    El número de árboles (n_estimators) es el hiperparámetro propio del Random Forest, y se
-    comporta distinto a los demás: NO produce sobreajuste. Cada árbol se entrena sobre una
-    muestra bootstrap distinta y el bosque promedia sus votos; añadir árboles sólo reduce la
-    varianza de ese promedio, nunca aumenta el sesgo. Por eso la curva sube y se aplana, en
-    vez de subir y volver a bajar como pasa con la profundidad del árbol o con K en KNN.
-
-    La pregunta práctica entonces no es "cuál es el mejor número" (siempre el más alto, por un
-    margen despreciable) sino "a partir de cuántos árboles deja de compensar", y eso sólo se
-    responde mirando a la vez el rendimiento y el coste.
-    """)
     df = barrido_n_arboles()
     tabla(df, "Random Forest: rendimiento y coste según el número de árboles", 4)
 
@@ -434,31 +356,6 @@ def paso_3_7_n_arboles():
           f"{t.loc[n_max] / max(float(t.loc[n_suf]), 1e-9):.1f} "
           f"({t.loc[n_suf]:.2f} s -> {t.loc[n_max]:.2f} s) a cambio de "
           f"{cv.loc[n_max] - cv.loc[n_suf]:+.4f} de macro-F1.")
-    nota("""
-    CÓMO LEER LA GRÁFICA. La curva sube rápido al principio y después se aplana: es la forma
-    típica de este hiperparámetro. Fíjate además en la banda sombreada, que es la desviación
-    típica entre los 5 folds: ancha a la izquierda (con pocos árboles el promedio del bosque es
-    inestable y depende de qué muestras bootstrap tocaron) y estrecha a la derecha. Buena parte
-    del beneficio de añadir árboles no es subir la métrica, sino hacerla más fiable.
-
-    El criterio para marcar el punto "suficiente" es sencillo y verificable: el menor número de
-    árboles que ya consigue el 90% de toda la mejora del barrido (medida entre el bosque más
-    pequeño y el mejor resultado). Se prefiere ese criterio al de "quién saca el score más alto"
-    porque el más alto, en un hiperparámetro que no sobreajusta, siempre será el mayor de la
-    grilla por un margen irrelevante.
-
-    LECTURA PARA EL INFORME. El coste crece de forma aproximadamente lineal con el número de
-    árboles (cada uno se entrena por separado), mientras la ganancia se agota. Por eso la
-    pregunta correcta no es "¿cuál es el mejor número?" — un GridSearch que sólo mire el score
-    siempre elegirá el valor más alto de la grilla — sino "¿a partir de cuántos deja de
-    compensar?". Los números concretos están impresos justo arriba.
-
-    Un matiz importante para defenderlo: a diferencia de la profundidad del árbol o de K en KNN,
-    aquí NO hay sobreajuste por pasarse. Cada árbol se entrena sobre una muestra bootstrap
-    distinta y el bosque promedia; añadir árboles sólo reduce la varianza de ese promedio. Por eso
-    la curva se aplana en vez de bajar. Las oscilaciones pequeñas que se ven al final son ruido de
-    muestreo, no degradación del modelo.
-    """)
 
 
 # ----------------------------------------------------------------------------
@@ -466,7 +363,6 @@ def paso_3_7_n_arboles():
 # ----------------------------------------------------------------------------
 @etapa.paso("4", "Variante B (sin Weight/Height): resultados, reportes, matrices e importancias", figuras=2)
 def paso_4_variante_B():
-    nota("Mismo protocolo que en A, eliminando las dos columnas que determinan el IMC.")
     fitted, tabla_B, X_tr, X_te = variante("B")
     y_test = datos()["y_test"]
     tabla(tabla_B, "Variante B — macro-F1 en CV y métricas en test")
@@ -485,6 +381,8 @@ def paso_4_variante_B():
     for ax, (name, gs) in zip(axes, fitted.items()):
         plot_confusion(y_test, gs.predict(X_te), CLASS_ORDER, f"{name} (B, sin Weight/Height)", ax=ax)
     etapa.figura(fig, "4_matrices_confusion_B")
+    for name, gs in fitted.items():
+        tabla_por_clase(y_test, gs.predict(X_te), f"Métricas por clase — {name} (B)")
 
     rf_B = fitted["Random Forest"].best_estimator_
     imp_B = pd.Series(rf_B.feature_importances_, index=X_tr.columns).sort_values(ascending=False)
@@ -493,10 +391,6 @@ def paso_4_variante_B():
     sns.barplot(x=imp_B.values, y=imp_B.index, ax=ax, color="indianred")
     ax.set_title("Importancia de features — Random Forest (B, sin Weight/Height)")
     etapa.figura(fig, "4_importancias_rf_B")
-    nota("""
-    Sin Weight/Height el rendimiento cae ~10 puntos (RF: 0.957 -> 0.857) pero sigue muy por encima
-    del azar (1/7 ≈ 0.14). Suben los hábitos y la condición física: Age, FCVC, NCP, FAF y TUE.
-    """)
 
 
 @etapa.paso("4.1", "Curva del mejor K de KNN — variante B", figuras=1)
@@ -506,12 +400,6 @@ def paso_4_1_curva_k_B():
     ax, mejor_k = plot_k_curve(fitted["KNN"].cv_results_, ax=ax)
     etapa.figura(fig, "4.1_curva_k_knn_B")
     print("Mejor K (variante B):", mejor_k, "| params:", fitted["KNN"].best_params_)
-    nota("""
-    Con esta rutina determinamos que el mejor K era 3 (weights=distance, macro-F1 de CV 0.764).
-    K=1 y K=3 quedan prácticamente empatados (≈0.764) y gana K=3 por el ponderado por distancia;
-    sin las dos columnas que definen el IMC el vecino único ya no basta por sí solo. De ahí en
-    adelante la curva vuelve a bajar por la misma razón que en A.
-    """)
 
 
 # ----------------------------------------------------------------------------
@@ -530,59 +418,6 @@ def paso_5_comparacion():
     ax.set_ylim(0, 1)
     ax.set_title("Macro-F1 en test por modelo y variante")
     etapa.figura(fig, "5_comparacion_A_vs_B")
-
-
-# ----------------------------------------------------------------------------
-# 6. Conclusiones
-# ----------------------------------------------------------------------------
-@etapa.paso("6", "Conclusiones (texto) + nodo raíz e importancia de atributos")
-def paso_6_conclusiones():
-    nota("""
-    | Variante    | Modelo              | CV macro-F1 | Test acc | Test macro-F1 |
-    |-------------|---------------------|-------------|----------|---------------|
-    | A (todas)   | Árbol               | 0.923       | 0.938    | 0.936         |
-    | A (todas)   | Random Forest       | 0.944       | 0.957    | 0.956         |
-    | A (todas)   | KNN (k=1)           | 0.815       | 0.821    | 0.808         |
-    | B (sin W/H) | Árbol               | 0.744       | 0.746    | 0.740         |
-    | B (sin W/H) | Random Forest       | 0.851       | 0.857    | 0.853         |
-    | B (sin W/H) | KNN (k=3, distance) | 0.764       | 0.768    | 0.757         |
-
-    - VARIANTE A: Random Forest es el mejor (acc 0.957 / macro-F1 0.956), seguido del árbol
-      (0.938) y KNN (0.821). Weight es de lejos la feature más importante (0.31): el modelo está
-      aprendiendo esencialmente el IMC. Las confusiones restantes son entre clases contiguas.
-    - KNN queda claramente por debajo de los árboles en ambas variantes: la distancia euclídea
-      mezcla variables de escalas y naturalezas muy distintas (binarias, ordinales, one-hot,
-      continuas), y el escalado estándar no resuelve que Weight/Height sean las que realmente
-      separan las clases. Que el mejor k sea 1 en A es coherente con que ~77% del dataset sea
-      sintético.
-    - VARIANTE B: al quitar Weight/Height el rendimiento cae ~10 puntos (RF: 0.957 -> 0.857), pero
-      sigue muy por encima del azar. Los hábitos y la condición física sí llevan información
-      sobre el nivel de obesidad. Igual conviene cautela: SMOTE infla el rendimiento de RF/KNN
-      respecto a datos 100% reales.
-    - PARA EL INFORME: reportar la variante A como modelo principal (es lo que pide el enunciado)
-      y presentar la fuga de datos y la variante B como análisis complementario.
-
-    6.1 NODO RAÍZ E IMPORTANCIA DE ATRIBUTOS
-
-    Atributo raíz de cada árbol (variante A): los tres árboles del paso 3.4 y el árbol de
-    GridSearch cortan la raíz por Weight ≤ 99.536. Es el primer corte porque es el que más
-    reduce la impureza Gini: separa de un golpe las tres clases de obesidad de las demás.
-
-    Top-5 de feature_importances_ del Random Forest:
-
-    | # | Variante A (todas) | Variante B (sin Weight/Height) |
-    |---|--------------------|--------------------------------|
-    | 1 | Weight 0.311       | Age 0.160                      |
-    | 2 | Age 0.096          | FCVC 0.142                     |
-    | 3 | Height 0.095       | NCP 0.097                      |
-    | 4 | FCVC 0.088         | FAF 0.096                      |
-    | 5 | Gender 0.054       | TUE 0.094                      |
-
-    En A manda Weight: el modelo reconstruye el IMC (fuga de datos). En B suben los hábitos y la
-    condición física: edad, consumo de vegetales (FCVC), número de comidas (NCP), actividad
-    física (FAF) y tiempo frente a pantallas (TUE). Ésos son los atributos que realmente
-    describen el fenómeno, aunque con ellos solos el acierto baje de 0.957 a 0.857.
-    """)
 
 
 # ----------------------------------------------------------------------------
@@ -619,16 +454,6 @@ def _con_ruido(X_tr, X_te, nivel):
 
 @etapa.paso("7", "Robustez ante ruido sintético (jittering) en variante B: 5% y barrido 0–20%", figuras=1)
 def paso_7_ruido():
-    nota("""
-    7.1 MOTIVACIÓN: romper la artificialidad de SMOTE. ~77% de las filas fueron generadas por
-    SMOTE (interpolación lineal entre vecinos). Esto crea (1) puntos cuasi-duplicados que
-    favorecen a KNN con k=1, y (2) límites de decisión irreales para los árboles.
-
-    Para evaluar la robustez empírica inyectamos ruido gaussiano controlado sobre los atributos
-    continuos de hábitos:  x_ruidoso = x + ε,  ε ~ N(0, (α·σ_j)²), con α de 5% a 20% de la
-    desviación estándar del atributo en train. Se evalúa en la variante B (donde los hábitos son
-    las únicas variables predictivas). Los valores se recortan a rangos fisiológicos realistas.
-    """)
     d = datos()
     y_train, y_test = d["y_train"], d["y_test"]
     X_tr_B, X_te_B = d["X_train"].drop(columns=DROP_WH), d["X_test"].drop(columns=DROP_WH)
@@ -681,20 +506,127 @@ def paso_7_ruido():
     etapa.figura(fig, "7_barrido_ruido")
     tabla(df_sweep.set_index("Nivel de ruido (%)"), "Accuracy en test por nivel de ruido")
 
-    nota("""
-    7.2 CONCLUSIONES DE LA PRUEBA DE ROBUSTEZ
 
-    1. Random Forest es el modelo más robusto: pasa de 85.7% (sin ruido) a 79.0% con 20% de
-       perturbación (pierde 6.7 puntos). El promedio de muchos árboles (bagging) cancela el ruido
-       de media cero.
-    2. El árbol individual es el más frágil: cae de 74.6% a 64.8% (casi 10 puntos; ya al 5% pierde
-       5). Los cortes rígidos x <= umbral son inestables ante perturbaciones de frontera.
-    3. SMOTE y KNN (k=1 vs k=3): en datos limpios k=1 superaba ligeramente a k=3 (0.770 vs 0.768)
-       gracias a los cuasi-duplicados de SMOTE. Con ruido (5%–20%) k=1 baja sostenidamente hasta
-       0.737, mientras k=3 se mantiene entre 0.768 y 0.778, superando a k=1 en todos los niveles.
-       Lectura para la sustentación: el desempeño de k=1 era un artefacto de SMOTE; con ruido
-       real, promediar la vecindad (k=3) generaliza mejor.
-    """)
+# ----------------------------------------------------------------------------
+# 8. Sólo filas reales (sin SMOTE) y sin Weight/Height
+# ----------------------------------------------------------------------------
+# Respuestas de encuesta que SMOTE deja con decimales. Una fila con TODAS ellas enteras no fue
+# interpolada: es una respuesta original. Da 491 de 2087 filas (23.5 %, el ~23 % real que
+# declara UCI). Es una heurística, no una etiqueta del dataset.
+COLS_ENCUESTA = ["Age", "FCVC", "NCP", "CH2O", "FAF", "TUE"]
+GRUPOS_3 = {"Insufficient_Weight": "Bajo/Normal", "Normal_Weight": "Bajo/Normal",
+            "Overweight_Level_I": "Sobrepeso", "Overweight_Level_II": "Sobrepeso",
+            "Obesity_Type_I": "Obesidad", "Obesity_Type_II": "Obesidad", "Obesity_Type_III": "Obesidad"}
+METRICAS_REALES = ["accuracy", "balanced_accuracy", "f1_macro"]
+BASELINE_REALES = "Línea base (clase mayoritaria)"
+
+
+def filas_reales(X):
+    """Máscara booleana: True en las filas cuyas respuestas de encuesta son todas enteras."""
+    return (X[COLS_ENCUESTA] % 1 == 0).all(axis=1)
+
+
+def _modelos_reales():
+    """Configuraciones fijas y razonables (sin GridSearch: con 491 filas haría falta CV anidada)."""
+    return {
+        BASELINE_REALES: DummyClassifier(strategy="most_frequent"),
+        "Árbol (depth 4, leaf 5)": DecisionTreeClassifier(max_depth=4, min_samples_leaf=5,
+                                                          random_state=RANDOM_STATE),
+        "Random Forest": RandomForestClassifier(n_estimators=200, random_state=RANDOM_STATE, n_jobs=-1),
+        "RF con pesos por clase": RandomForestClassifier(n_estimators=200, min_samples_leaf=3,
+                                                         class_weight="balanced",
+                                                         random_state=RANDOM_STATE, n_jobs=-1),
+        "KNN (k=15, distance)": Pipeline([("scaler", StandardScaler()),
+                                          ("knn", KNeighborsClassifier(n_neighbors=15, weights="distance"))]),
+        "KNN (k=1)": Pipeline([("scaler", StandardScaler()), ("knn", KNeighborsClassifier(n_neighbors=1))]),
+    }
+
+
+def _cv_reales(X, y):
+    """Media y desviación de cada métrica con 3 folds estratificados repetidos 10 veces."""
+    cv = RepeatedStratifiedKFold(n_splits=3, n_repeats=10, random_state=RANDOM_STATE)
+    filas = {}
+    for nombre, modelo in _modelos_reales().items():
+        s = cross_validate(modelo, X, y, cv=cv, scoring=METRICAS_REALES, n_jobs=-1)
+        filas[nombre] = {**{m: s[f"test_{m}"].mean() for m in METRICAS_REALES},
+                         "f1_macro_std": s["test_f1_macro"].std()}
+    return pd.DataFrame(filas).T
+
+
+def _evaluacion_reales():
+    d = datos()
+    X, y = d["X"], d["y"]
+    r = filas_reales(X)
+    X_r, y_r = X[r], y[r]
+    X_rB = X_r.drop(columns=DROP_WH)
+
+    # (a) Los modelos del proyecto (entrenados con todo) evaluados por separado en el test
+    m_te = filas_reales(d["X_test"])
+    real_vs_sint = {}
+    for tag in ("A", "B"):
+        fitted, _, _, X_te = variante(tag)
+        for nombre in ("Árbol de decisión", "Random Forest", "KNN"):
+            p = fitted[nombre].predict(X_te)
+            real_vs_sint[f"{tag} · {nombre}"] = {
+                "acc filas reales": accuracy_score(d["y_test"][m_te], p[m_te]),
+                "acc filas sintéticas": accuracy_score(d["y_test"][~m_te], p[~m_te])}
+
+    # (b) Coherencia de la etiqueta con el IMC en las filas reales (¿están bien etiquetadas?)
+    imc = X_r["Weight"] / X_r["Height"] ** 2
+    cortes = [-np.inf, 18.5, 25, 27.5, 30, 35, 40, np.inf]
+    clase_oms = pd.cut(imc, cortes, right=False, labels=CLASS_ORDER).astype(str)
+
+    rf = RandomForestClassifier(n_estimators=300, min_samples_leaf=3, class_weight="balanced",
+                                random_state=RANDOM_STATE, n_jobs=-1).fit(X_rB, y_r.map(GRUPOS_3))
+    return dict(
+        n_reales=int(r.sum()), n_total=len(X), n_test_reales=int(m_te.sum()),
+        conteo=y_r.value_counts().reindex(CLASS_ORDER),
+        real_vs_sint=pd.DataFrame(real_vs_sint).T,
+        coincide_imc=float((clase_oms == y_r).mean()),
+        B7=_cv_reales(X_rB, y_r),
+        B3=_cv_reales(X_rB, y_r.map(GRUPOS_3)),
+        A7=_cv_reales(X_r, y_r),
+        importancias=pd.Series(rf.feature_importances_, index=X_rB.columns).sort_values(ascending=False),
+    )
+
+
+def evaluacion_reales():
+    return cache.obtener("clf_filas_reales", _evaluacion_reales)
+
+
+@etapa.paso("8", "Sólo filas reales (sin SMOTE) y sin Weight/Height: el caso sin datos sintéticos", figuras=1)
+def paso_8_filas_reales():
+    ev = evaluacion_reales()
+    B7, B3, A7 = ev["B7"], ev["B3"], ev["A7"]
+
+    tabla(ev["real_vs_sint"], "Modelos del proyecto: accuracy en las filas reales vs sintéticas del test")
+    tabla(ev["conteo"].rename("filas"), "Filas reales por clase (distribución de la encuesta original)")
+
+    tabla(B7, "Sólo filas reales · variante B · 7 clases (CV 3×10)")
+
+    tabla(B3, "Sólo filas reales · variante B · 3 clases agrupadas (CV 3×10)")
+    tabla(ev["importancias"].head(8).rename("importancia"),
+          "Importancia de atributos (RF con pesos por clase, 3 clases, filas reales)")
+
+    tabla(A7, "Referencia: sólo filas reales · variante A (con Weight/Height) · 7 clases")
+
+    # --- Figura: macro-F1 y balanced accuracy vs línea base, 7 y 3 clases ---
+    fig, axes = plt.subplots(1, 2, figsize=(15, 5), sharey=True)
+    for ax, t, azar, titulo in [(axes[0], B7, 1 / 7, "7 clases"), (axes[1], B3, 1 / 3, "3 clases agrupadas")]:
+        x = np.arange(len(t))
+        ax.bar(x - 0.2, t["balanced_accuracy"], 0.4, label="balanced accuracy", color="#4c78a8")
+        ax.bar(x + 0.2, t["f1_macro"], 0.4, yerr=t["f1_macro_std"], capsize=3,
+               label="macro-F1 (± desv. entre folds)", color="#f58518")
+        ax.axhline(azar, ls="--", color="gray", lw=1.2, label=f"azar en balanced acc. (1/{round(1 / azar)})")
+        ax.set_xticks(x, [n.replace(" (clase mayoritaria)", "") for n in t.index], rotation=20, ha="right")
+        ax.set_title(f"Filas reales, sin Weight/Height · {titulo}")
+        ax.grid(axis="x", visible=False)
+        ax.grid(axis="y", alpha=0.3)
+    axes[0].set_ylabel("métrica (CV 3 folds × 10 repeticiones)")
+    axes[0].set_ylim(0, 0.6)
+    for ax in axes:
+        ax.legend(loc="upper right", fontsize=9)
+    etapa.figura(fig, "8_filas_reales_sin_WH")
 
 
 if __name__ == "__main__":

@@ -24,9 +24,9 @@ Pasos:
   2.2  Silueta, CH y DB                4.2  K=7 con clase: contingencia + matrices mapeadas
   2.3  Estadístico gap                 4.3  Tabla comparativa sin/con clase
   2.4  Comparación de los 5 métodos    4.4  PCA 2D con clase ordinal
-  3    K=7 vs clases: métricas         4.5  Interpretación
+  3    K=7 vs clases: métricas
   3.1  Tabla de contingencia           5    Variante sólo numéricas
-  3.2  Matriz mapeada (húngaro)        6    Conclusiones
+  3.2  Matriz mapeada (húngaro)
   3.3  Centroides en unidades originales
 """
 import sys
@@ -48,9 +48,10 @@ from sklearn.preprocessing import StandardScaler
 from config import RANDOM_STATE
 from src import cache
 from src.data import TARGET_CLF
+from src.evaluation import metricas_por_clase
 from src.pasos import Etapa, cli
 from src.preprocessing import CLASS_ORDER, NUMERIC_COLS, cargar_clf
-from src.salida import nota, subtitulo, tabla
+from src.salida import subtitulo, tabla
 
 etapa = Etapa("04", "Clustering K-Means", "clustering",
               "Elección de K con 5 métodos, K=7 vs clases reales, con/sin clase, sólo numéricas")
@@ -250,12 +251,6 @@ def _pca_2d(X_, labels, titulo_clusters, nombre_fig):
 def paso_1_datos():
     d = datos()
     print("X:", d["X_scaled"].shape, "| columnas:", d["X"].columns.tolist())
-    nota("""
-    K-Means minimiza distancias euclídeas al centroide, así que todas las columnas deben estar
-    en la misma escala: StandardScaler (media 0, desviación 1). Ojo: al estandarizar, una
-    binaria rara (p. ej. MTRANS_Bike con 7 unos sobre 2087) toma valores z enormes y pesa mucho
-    en la distancia. Esto explica varios resultados de esta etapa.
-    """)
 
 
 @etapa.paso("2", "Barrido de K ∈ [2, 12]: inercia, silueta, Calinski-Harabasz y Davies-Bouldin")
@@ -277,11 +272,6 @@ def paso_2_1_codo():
     ax.legend()
     etapa.figura(fig, "2.1_codo")
     print("K por método del codo:", k_elbow)
-    nota("""
-    La inercia siempre baja al subir K; el "codo" es donde deja de bajar rápido. Aquí la curva
-    baja de forma bastante uniforme (no hay un codo nítido); la detección automática (máxima
-    distancia a la recta entre extremos) marca K=7.
-    """)
 
 
 @etapa.paso("2.2", "Silueta, Calinski-Harabasz y Davies-Bouldin vs K", figuras=1)
@@ -301,12 +291,6 @@ def paso_2_2_sil_ch_db():
     etapa.figura(fig, "2.2_silueta_ch_db")
     print(f"K por silueta: {r['Silueta (max)']} | Calinski-Harabasz: {r['Calinski-Harabasz (max)']} "
           f"| Davies-Bouldin: {r['Davies-Bouldin (min)']}")
-    nota("""
-    - Silueta: qué tan cerca está cada punto de su cluster frente al cluster vecino (−1..1, mayor
-      mejor). Máximo en K=2 pero baja para todo K (0.22): estructura de clusters débil.
-    - Calinski-Harabasz: varianza entre clusters / dentro de clusters (mayor mejor). K=2.
-    - Davies-Bouldin: similitud media de cada cluster con su más parecido (menor mejor). K=9.
-    """)
 
 
 @etapa.paso("2.3", "Estadístico gap", figuras=1)
@@ -324,23 +308,11 @@ def paso_2_3_gap():
     etapa.figura(fig, "2.3_gap")
     print("K por estadístico gap:", k_gap, "(None = ningún K en el rango cumple el criterio)")
     tabla(gap_df, "gap(K) y s_k", 3)
-    nota("""
-    Compara la inercia observada con la esperada bajo una distribución de referencia uniforme
-    (sobre el rango de cada feature escalada). Se elige el menor K tal que
-    gap(K) >= gap(K+1) − s(K+1). Aquí se cumple ya en K=2.
-    """)
 
 
 @etapa.paso("2.4", "Comparación de los 5 métodos para elegir K")
 def paso_2_4_comparacion():
     tabla(barrido("base")["resumen"], "K óptimo según cada método")
-    nota("""
-    LOS MÉTODOS NO COINCIDEN. Tres de cinco (silueta, Calinski-Harabasz, gap) eligen K=2; el
-    codo da K=7 y Davies-Bouldin K=9. La curva de inercia baja de forma uniforme y la silueta es
-    baja para todo K (máx. 0.22 en K=2, ~0.13 en K=7): la estructura de clusters en estos datos
-    es débil. El K=2 que prefieren silueta/CH/gap corresponde esencialmente a la partición por
-    family_history_with_overweight (y en menor medida Gender), no a niveles de obesidad.
-    """)
 
 
 # ----------------------------------------------------------------------------
@@ -353,11 +325,6 @@ def paso_3_k7():
     print(f"Silueta (K=7): {silhouette_score(d['X_scaled'], labels7):.3f}")
     print(f"ARI  (clusters vs NObeyesdad): {adjusted_rand_score(d['y_true'], labels7):.3f}")
     print(f"NMI  (clusters vs NObeyesdad): {normalized_mutual_info_score(d['y_true'], labels7):.3f}")
-    nota("""
-    ARI (Adjusted Rand Index) y NMI comparan la partición en clusters con las clases reales sin
-    importar cómo se numeren los clusters: 1 = coincidencia perfecta, ~0 = como al azar.
-    ARI 0.09 y NMI 0.16: los clusters de K-Means NO se corresponden con las 7 clases.
-    """)
 
 
 @etapa.paso("3.1", "Matriz de confusión clusters × clases (tabla de contingencia)", figuras=1)
@@ -371,12 +338,6 @@ def paso_3_1_contingencia():
 
 @etapa.paso("3.2", "Matriz con clusters reasignados a clases (algoritmo húngaro)", figuras=1)
 def paso_3_2_hungaro():
-    nota("""
-    Los índices de cluster son arbitrarios. Para leerla como una matriz de confusión clásica se
-    asigna a cada cluster la clase que maximiza el total de coincidencias (algoritmo húngaro,
-    scipy.optimize.linear_sum_assignment sobre la tabla de contingencia), y se calcula la
-    accuracy de esa correspondencia y la pureza de los clusters.
-    """)
     an = analisis_base()
     fig, ax = plt.subplots(figsize=(9, 7))
     _heatmap_cm(an["cm"], ax, "Matriz de confusión — clusters K=7 mapeados a clases (asignación óptima)")
@@ -384,6 +345,8 @@ def paso_3_2_hungaro():
     print("Mapeo cluster -> clase:", an["mapping"])
     print(f"Accuracy con mapeo óptimo: {an['metricas']['acc_mapeo']:.3f}")
     print(f"Pureza de los clusters:    {an['metricas']['pureza']:.3f}")
+    tabla(metricas_por_clase(an["cm"], CLASS_ORDER),
+          "Métricas por clase — K=7 sin la clase", 3)
 
 
 @etapa.paso("3.3", "¿Qué separa a cada cluster? Centroides en unidades originales")
@@ -398,24 +361,11 @@ def paso_3_3_centroides():
     tabla(centroids[["n", "clase_mapeada", "Gender", "Age", "Height", "Weight", "BMI_centroide",
                      "family_history_with_overweight", "FAVC", "FCVC", "CAEC", "FAF",
                      "MTRANS_Public_Transportation"]], "Centroides (K=7) en unidades originales", 2)
-    nota("""
-    Los centroides muestran qué está separando K-Means: tres clusters son exactamente los usuarios
-    de bici (n=7), moto (n=11) y caminar (n=55); el resto se parte por family_history, Gender y
-    MTRANS_Automobile/Public_Transportation. Al estandarizar, una columna binaria con 7 unos toma
-    valores z de ~17 y domina la distancia euclídea frente a Weight o Height. K-Means asume
-    clusters esféricos en un espacio continuo; mezclar one-hot/binarias con continuas rompe esa
-    premisa.
-    """)
 
 
 @etapa.paso("3.4", "Visualización 2D (PCA): clusters K=7 vs clases reales", figuras=1)
 def paso_3_4_pca():
     _pca_2d(datos()["X_scaled"], km7().labels_, "Clusters K-Means (K=7)", "3.4_pca_2d")
-    nota("""
-    PC1+PC2 sólo explican el 25.4% de la varianza, así que el dibujo es una proyección muy
-    aplanada de 20 dimensiones. Aun así se ve que los colores de los clusters (izquierda) no
-    siguen la disposición de las clases (derecha).
-    """)
 
 
 # ----------------------------------------------------------------------------
@@ -423,14 +373,6 @@ def paso_3_4_pca():
 # ----------------------------------------------------------------------------
 @etapa.paso("4", "Variantes con la columna de clase: ordinal (21 cols) y one-hot (27 cols)")
 def paso_4_con_clase():
-    nota("""
-    El profesor solicitó evaluar qué ocurre si repetimos el clustering INCLUYENDO la columna de
-    clase, para contrastar la hipótesis de que el clustering debería mejorar con esa información.
-    Dos codificaciones de la clase agregadas a las 20 features:
-    1. Ordinal (NObeyesdad_ord): un entero 0..6 respetando CLASS_ORDER (21 columnas).
-    2. One-hot (clase_*): 7 columnas binarias ortogonales (27 columnas).
-    Ambas se estandarizan con un StandardScaler independiente antes de K-Means.
-    """)
     c = con_clase()
     print(f"X_con_ord: {c['X_ord'].shape} | X_con_oh: {c['X_oh'].shape}")
 
@@ -469,20 +411,11 @@ def paso_4_1_k_con_clase():
 @etapa.paso("4.2", "K=7 con clase: tablas de contingencia crudas y matrices mapeadas", figuras=2)
 def paso_4_2_k7_con_clase():
     c = con_clase()
-    nota("""
-    Tabla de contingencia CRUDA (antes del mapeo): los números de cluster son arbitrarios, así
-    que la matriz sale "corrida"; lo que hay que mirar es si cada fila (clase real) se concentra
-    en una sola columna (cluster).
-    """)
     fig, axes = plt.subplots(1, 2, figsize=(18, 7))
     for ax, (nombre, an) in zip(axes, [("ordinal", c["analisis_ord"]), ("one-hot", c["analisis_oh"])]):
         _heatmap_ct(an["ct"], ax, f"Con clase ({nombre}) — K=7, tabla de contingencia cruda")
     etapa.figura(fig, "4.2_contingencia_cruda_con_clase")
 
-    nota("""
-    Matriz mapeada con el algoritmo húngaro: se asigna a cada cluster la clase que maximiza la
-    diagonal y se recalcula la matriz de confusión con ese mapeo.
-    """)
     fig, axes = plt.subplots(1, 2, figsize=(18, 7))
     for ax, (nombre, an) in zip(axes, [("ordinal", c["analisis_ord"]), ("one-hot", c["analisis_oh"])]):
         _heatmap_cm(an["cm"], ax, f"Con clase ({nombre}) — K=7 mapeado\n"
@@ -490,6 +423,9 @@ def paso_4_2_k7_con_clase():
     etapa.figura(fig, "4.2_matrices_mapeadas_con_clase")
     print("Mapeo Ordinal:", c["analisis_ord"]["mapping"])
     print("Mapeo One-Hot:", c["analisis_oh"]["mapping"])
+    for nombre, an in [("ordinal", c["analisis_ord"]), ("one-hot", c["analisis_oh"])]:
+        tabla(metricas_por_clase(an["cm"], CLASS_ORDER),
+              f"Métricas por clase — K=7 con clase {nombre}", 3)
 
 
 @etapa.paso("4.3", "Tabla comparativa final: sin clase vs con clase (ordinal / one-hot)")
@@ -510,40 +446,11 @@ def paso_4_4_pca_con_clase():
             "4.4_pca_2d_con_clase_ordinal")
 
 
-@etapa.paso("4.5", "Interpretación: ¿por qué incluir la clase cambia el clustering?")
-def paso_4_5_interpretacion():
-    nota("""
-    1. VARIANTE ORDINAL (mejora moderada): el ARI pasa de 0.0883 a 0.2520 y la pureza de 0.3057 a
-       0.4255. La mejora es limitada porque se añadió sólo 1 columna entre 21 estandarizadas: en
-       la distancia euclídea cuadrática las otras 20 siguen aportando ~95% del peso. Las binarias
-       infrecuentes (MTRANS_Bike con z ≈ 17) siguen atrayendo centroides.
-
-    2. VARIANTE ONE-HOT (alineación casi perfecta): ARI 0.9989, pureza 0.9995, accuracy con mapeo
-       0.9995 (2086 de 2087 filas). Al codificar la clase como 7 columnas binarias ortogonales y
-       estandarizarlas, cada observación recibe un peso dimensional que domina sobre las variables
-       conductuales: la inercia se minimiza poniendo un centroide en cada vértice del espacio de
-       las clases.
-
-    ¿POR QUÉ ESTE EJERCICIO CARECE DE SENTIDO EN LA PRÁCTICA? En un problema real de aprendizaje
-    no supervisado las etiquetas no existen (si se conocieran, el problema sería de clasificación
-    supervisada). Incluir la variable objetivo en las features le da la respuesta al algoritmo,
-    convirtiendo el agrupamiento en una memorización forzada. Además, el algoritmo húngaro usa las
-    etiquetas reales para encontrar la mejor permutación, algo imposible en un escenario no
-    supervisado auténtico.
-    """)
-
-
 # ----------------------------------------------------------------------------
 # 5. Sólo numéricas
 # ----------------------------------------------------------------------------
 @etapa.paso("5", "Variante complementaria: sólo las 8 features numéricas", figuras=2)
 def paso_5_solo_numericas():
-    nota("""
-    Los centroides del paso 3.3 muestran que K-Means separa sobre todo por MTRANS y
-    family_history. Como análisis complementario (no reemplaza a lo que pide el enunciado) se
-    repite el procedimiento sólo con las 8 features numéricas (Age, Height, Weight, FCVC, NCP,
-    CH2O, FAF, TUE) para ver si así los clusters se acercan más a los niveles de obesidad.
-    """)
     n = solo_numericas()
     b = barrido("num")
     tabla(pd.concat([barrido("base")["resumen"].rename("K óptimo (todas)"),
@@ -562,6 +469,8 @@ def paso_5_solo_numericas():
     _heatmap_ct(an["ct"], axes[0], "Clases reales vs clusters (K=7, sólo numéricas)")
     _heatmap_cm(an["cm"], axes[1], "Clusters mapeados a clases (asignación óptima)")
     etapa.figura(fig, "5_matrices_solo_numericas")
+    tabla(metricas_por_clase(an["cm"], CLASS_ORDER),
+          "Métricas por clase — K=7 sólo numéricas", 3)
     for k, v in an["metricas"].items():
         print(f"   {k:<10}: {v:.3f}")
 
@@ -571,61 +480,6 @@ def paso_5_solo_numericas():
     cent.insert(0, "n", pd.Series(n["km7n"].labels_).value_counts().sort_index().values)
     cent["BMI_centroide"] = cent["Weight"] / cent["Height"] ** 2
     tabla(cent.sort_values("BMI_centroide"), "Centroides (sólo numéricas) ordenados por IMC", 2)
-    nota("""
-    Con las 8 numéricas los métodos siguen sin coincidir (codo 6, silueta 12, CH 2, DB 11, gap sin
-    corte). Con K=7: ARI 0.16, NMI 0.26, pureza 0.38. Mejora, pero sigue lejos de recuperar las
-    clases. Los centroides ordenados por IMC sí van de ~23 a ~40, pero cada cluster mezcla varias
-    clases contiguas y además se separan por Age, NCP, FAF y TUE: la estructura "natural" de los
-    datos combina peso con hábitos y edad, y no coincide con los cortes de IMC de NObeyesdad.
-    """)
-
-
-# ----------------------------------------------------------------------------
-# 6. Conclusiones
-# ----------------------------------------------------------------------------
-@etapa.paso("6", "Conclusiones (texto)")
-def paso_6_conclusiones():
-    nota("""
-    ELECCIÓN DE K (todas las features, escaladas)
-
-    | Método                  | K |
-    |-------------------------|---|
-    | Codo (inercia, kneedle) | 7 |
-    | Silueta (max)           | 2 |
-    | Calinski-Harabasz (max) | 2 |
-    | Davies-Bouldin (min)    | 9 |
-    | Gap statistic           | 2 |
-
-    - Los métodos no coinciden. Tres de cinco eligen K=2; el codo da 7 y Davies-Bouldin 9. La
-      silueta es baja para todo K: la estructura de clusters es débil.
-    - El K=2 corresponde esencialmente a la partición por family_history_with_overweight.
-
-    K=7 vs CLASES REALES
-    - ARI = 0.09, NMI = 0.16, accuracy con asignación óptima = 0.30, pureza = 0.31. Los clusters
-      NO se corresponden con las 7 clases de NObeyesdad.
-    - K-Means separa por MTRANS (bici, moto, caminar), family_history y Gender: las binarias raras
-      dominan la distancia euclídea estandarizada.
-
-    COMPARATIVA CON Y SIN LA COLUMNA DE CLASE
-
-    | Variante            | Silueta | ARI    | NMI    | Acc mapeo | Pureza |
-    |---------------------|---------|--------|--------|-----------|--------|
-    | Sin clase           | 0.1315  | 0.0883 | 0.1575 | 0.3023    | 0.3057 |
-    | Con clase (ordinal) | 0.1555  | 0.2520 | 0.3584 | 0.4173    | 0.4255 |
-    | Con clase (one-hot) | 0.2279  | 0.9989 | 0.9984 | 0.9995    | 0.9995 |
-
-    - Ordinal: mejora moderada (una sola columna entre 21 tiene un peso euclídeo acotado).
-    - One-hot: reconstruye casi con exactitud las 7 clases al suministrar 7 dimensiones
-      ortogonales con la respuesta exacta. Confirma la expectativa del profesor y documenta por qué
-      el agrupamiento sólo tiene sentido sin acceso a las etiquetas.
-
-    VARIANTE SÓLO NUMÉRICAS: ARI 0.16, NMI 0.26, pureza 0.38. Mejora, pero sigue lejos.
-
-    LECTURA PARA EL INFORME: el clustering no supervisado no reproduce la etiqueta de obesidad.
-    No es un fallo del procedimiento sino un resultado: NObeyesdad es una discretización de una
-    sola variable (el IMC) con cortes fijos de la OMS, mientras que K-Means busca la partición
-    que minimiza varianza en las 20 (o 8) dimensiones a la vez, donde el IMC pesa poco.
-    """)
 
 
 if __name__ == "__main__":

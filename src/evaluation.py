@@ -186,6 +186,34 @@ def plot_confusion(y_true, y_pred, labels, title, ax=None, normalize=False, vmin
     return ax
 
 
+def metricas_por_clase(cm, labels) -> pd.DataFrame:
+    """TP, FN, FP, TN, Precision, Recall y F1 de cada clase, leídos de la matriz de confusión.
+
+    cm: filas = clase real, columnas = clase predicha (convención de sklearn).
+    Para la clase i:  TP = cm[i, i]          (diagonal)
+                      FN = fila i sin TP     (era i y se predijo otra)
+                      FP = columna i sin TP  (se predijo i y era otra)
+                      TN = todo lo demás
+    Precision = TP / (TP + FP)   Recall = TP / (TP + FN)   F1 = 2·P·R / (P + R)
+    Si un denominador es 0 (p. ej. nunca se predijo esa clase) la métrica queda en NaN; si
+    Precision y Recall valen 0, F1 = 0 (igual que scikit-learn).
+    """
+    cm = np.asarray(cm)
+    tp = np.diag(cm)
+    fn = cm.sum(axis=1) - tp
+    fp = cm.sum(axis=0) - tp
+    tn = cm.sum() - tp - fn - fp
+    with np.errstate(divide="ignore", invalid="ignore"):
+        precision = np.where(tp + fp > 0, tp / (tp + fp), np.nan)
+        recall = np.where(tp + fn > 0, tp / (tp + fn), np.nan)
+        f1 = np.where(precision + recall > 0, 2 * precision * recall / (precision + recall), 0.0)
+    f1 = np.where(np.isnan(precision) | np.isnan(recall), np.nan, f1)
+    df = pd.DataFrame({"TP": tp, "FN": fn, "FP": fp, "TN": tn,
+                       "Precision": precision, "Recall": recall, "F1": f1},
+                      index=pd.Index(labels, name="Clase"))
+    return df
+
+
 def plot_pred_vs_real(y_true, y_pred, title, ax=None):
     if ax is None:
         _, ax = plt.subplots(figsize=(5, 5))

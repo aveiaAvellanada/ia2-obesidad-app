@@ -1,9 +1,9 @@
 """MENÚ PRINCIPAL del proyecto — punto de entrada para ver cualquier gráfica.
 
-Cómo usarlo (ver GUIA.md para capturas de dónde hacer clic):
+Cómo usarlo:
   1. Abre este archivo en VS Code y pulsa el botón ▶ "Run Python File" (arriba a la derecha),
      o en una terminal:  python main.py
-  2. Elige la etapa (1-4) y luego el paso (ej. 3.4). Se abre una ventana con la gráfica y se
+  2. Elige la etapa (1-5) y luego el paso (ej. 3.4). Se abre una ventana con la gráfica y se
      guarda un PNG en figures/. Cierra la ventana para continuar.
 
 Atajos directos sin menú:
@@ -22,10 +22,11 @@ ETAPAS = {}
 
 
 def _cargar_etapas():
-    """Importa las 4 etapas (import perezoso: así el menú arranca rápido)."""
+    """Importa las 5 etapas (import perezoso: así el menú arranca rápido)."""
     if not ETAPAS:
-        from etapas import e01_eda, e02_clasificacion, e03_regresion, e04_clustering
-        for mod in (e01_eda, e02_clasificacion, e03_regresion, e04_clustering):
+        from etapas import (e01_eda, e02_clasificacion, e03_regresion, e04_clustering,
+                            e05_comparacion)
+        for mod in (e01_eda, e02_clasificacion, e03_regresion, e04_clustering, e05_comparacion):
             ETAPAS[mod.etapa.numero] = mod.etapa
     return ETAPAS
 
@@ -61,14 +62,14 @@ def menu_principal():
             salida.OPCIONES["graficar_tablas"] = not salida.OPCIONES["graficar_tablas"]
         elif eleccion == "c":
             cache.limpiar()
-        elif eleccion in ("1", "2", "3", "4"):
+        elif eleccion in ("1", "2", "3", "4", "5"):
             etapas["0" + eleccion].menu()
         else:
             print("Opción no válida.")
 
 
 def ejecutar_todo():
-    """Corre las 4 etapas completas sin abrir ventanas (sólo guarda PNG)."""
+    """Corre las 5 etapas completas sin abrir ventanas (sólo guarda PNG)."""
     mostrar_antes = salida.OPCIONES["mostrar"]
     salida.configurar(mostrar=False, guardar=True)
     for et in _cargar_etapas().values():

@@ -13,7 +13,7 @@ Qué hace esta etapa:
   3.   Preprocesamiento (encoding, duplicados) -> genera data/clf.csv y data/reg.csv,
        que usan las etapas 02, 03 y 04.
 
-Cómo ejecutar (ver GUIA.md):
+Cómo ejecutar:
   python etapas/e01_eda.py             -> menú de pasos
   python etapas/e01_eda.py --todo      -> todos los pasos
   python etapas/e01_eda.py --paso 2.3  -> sólo el paso 2.3
@@ -33,7 +33,7 @@ from config import RANDOM_STATE
 from src.data import TARGET_CLF, TARGET_REG, CLF_CSV, REG_CSV, load_raw
 from src.pasos import Etapa, cli
 from src.preprocessing import CLASS_ORDER, build_datasets
-from src.salida import nota, subtitulo, tabla
+from src.salida import subtitulo, tabla
 
 etapa = Etapa("01", "EDA y preprocesamiento", "eda",
               "Exploración del dataset, chequeo de fuga de datos y generación de clf.csv / reg.csv")
@@ -79,14 +79,6 @@ def paso_1_carga():
     for col in df.select_dtypes(exclude="number").columns:
         print(f"{col}: {df[col].value_counts().to_dict()}")
 
-    nota("""
-    El dataset no tiene valores faltantes. Sí tiene 24 filas duplicadas exactas, que se
-    eliminan en el paso 3 antes de cualquier split (si no, la misma fila podría caer en train
-    y en test a la vez). Variables como Age, FCVC, NCP, CH2O, FAF, TUE tienen valores no enteros
-    (p. ej. FCVC = 2.37) aunque se recogieron como respuestas discretas: es rastro de que ~77% de
-    las filas son sintéticas (generadas con SMOTE, según la descripción de UCI).
-    """)
-
 
 # ----------------------------------------------------------------------------
 # 2.1 Distribución del target de clasificación
@@ -105,11 +97,6 @@ def paso_2_1_clases():
     ax.tick_params(axis="x", rotation=45)
     etapa.figura(fig, "2.1_distribucion_clases")
 
-    nota("""
-    Las 7 clases están razonablemente balanceadas (entre ~13% y ~17% cada una). No hay
-    desbalance severo; con `stratify` en el split y macro-F1 como métrica es suficiente.
-    """)
-
 
 # ----------------------------------------------------------------------------
 # 2.2 Distribución del target de regresión
@@ -127,22 +114,12 @@ def paso_2_2_weight():
     axes[1].tick_params(axis="x", rotation=45)
     etapa.figura(fig, "2.2_distribucion_weight")
 
-    nota("""
-    El peso va de 39 a 173 kg (media 86.6, mediana 83). El boxplot de la derecha ya adelanta la
-    fuga de datos: cada clase de NObeyesdad ocupa un rango de peso casi disjunto.
-    """)
-
 
 # ----------------------------------------------------------------------------
 # 2.3 Chequeo de fuga de datos
 # ----------------------------------------------------------------------------
 @etapa.paso("2.3", "Fuga de datos: Weight, Height y NObeyesdad (IMC vs umbrales OMS)", figuras=1)
 def paso_2_3_fuga():
-    nota("""
-    Las categorías de NObeyesdad se definen en el paper original a partir del
-    IMC = Weight / Height² (rangos de la OMS). Verificamos hasta qué punto la clase es una
-    función determinista de esas dos columnas.
-    """)
     d = df_bmi()
     tabla(d.groupby(TARGET_CLF, observed=True)["BMI"].describe().loc[CLASS_ORDER],
           "IMC por clase", decimales=2)
@@ -165,21 +142,6 @@ def paso_2_3_fuga():
 
     tabla(d[["Weight", "Height", "BMI", "Age"]].corr(), "Correlación Weight / Height / BMI / Age", 3)
 
-    nota("""
-    CONCLUSIÓN DEL CHEQUEO DE FUGA:
-
-    - NObeyesdad es casi una función determinista de Weight y Height: un árbol usando SÓLO esas
-      dos columnas alcanza 0.954 de accuracy en CV. Los cortes de IMC por clase coinciden con los
-      umbrales OMS (con algo de ruido por la parte sintética del dataset).
-    - En CLASIFICACIÓN, si dejamos Weight y Height como features, el modelo aprende esencialmente
-      a calcular el IMC. Es lo que hace la literatura y lo que pide el enunciado (el profesor sólo
-      advierte la fuga en la dirección NObeyesdad -> Weight), pero hay que tenerlo presente al
-      interpretar las métricas. Por eso la etapa 02 entrena también una "variante B" sin esas dos
-      columnas.
-    - En REGRESIÓN (target Weight) sí se excluye NObeyesdad, como exige el enunciado, porque la
-      clase codifica directamente el rango de peso.
-    """)
-
 
 # ----------------------------------------------------------------------------
 # 2.4 Correlaciones
@@ -191,10 +153,6 @@ def paso_2_4_correlaciones():
     sns.heatmap(num.corr(), annot=True, fmt=".2f", cmap="coolwarm", center=0, ax=ax)
     ax.set_title("Correlación (Pearson) entre numéricas")
     etapa.figura(fig, "2.4_correlaciones")
-    nota("""
-    Ninguna pareja de atributos está fuertemente correlacionada salvo Weight–Height (0.46). Los
-    hábitos (FCVC, NCP, CH2O, FAF, TUE) son casi independientes entre sí y del peso.
-    """)
 
 
 # ----------------------------------------------------------------------------
@@ -202,23 +160,6 @@ def paso_2_4_correlaciones():
 # ----------------------------------------------------------------------------
 @etapa.paso("3", "Preprocesamiento: encoding, duplicados y generación de clf.csv / reg.csv")
 def paso_3_preprocesamiento():
-    nota("""
-    Implementado en src/preprocessing.py para reutilizarlo en todas las etapas:
-
-    | Tipo      | Columnas                                         | Encoding                          |
-    |-----------|--------------------------------------------------|-----------------------------------|
-    | Binarias  | Gender, family_history_with_overweight, FAVC, SMOKE, SCC | 0/1                       |
-    | Ordinales | CAEC, CALC                                       | no=0 < Sometimes=1 < Frequently=2 < Always=3 |
-    | Nominal   | MTRANS                                           | one-hot (5 columnas)              |
-    | Numéricas | Age, Height, Weight, FCVC, NCP, CH2O, FAF, TUE   | sin cambio                        |
-
-    El ESCALADO (necesario para KNN y K-Means, irrelevante para árboles) no se hace aquí sino
-    dentro del Pipeline de cada modelo, ajustado sólo con el train, para no filtrar información
-    del test. Antes del encoding se eliminan las 24 filas duplicadas.
-
-    En los árboles se usa criterion='gini' (valor por defecto de scikit-learn, más eficiente al no
-    calcular logaritmos); el profesor confirmó que Gini o entropía es indiferente para esta entrega.
-    """)
     df_clf, df_reg = build_datasets(df_raw())
     print("Clasificación:", df_clf.shape, "| target:", TARGET_CLF)
     print("Regresión:    ", df_reg.shape, "| target:", TARGET_REG,

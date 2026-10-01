@@ -1,6 +1,6 @@
 {
-    // Intérprete del proyecto (créalo con: python3 -m venv .venv && .venv/bin/pip install -r requirements.txt)
-    "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+    // Intérprete del proyecto (Windows: py -m venv .venv-1 && .venv-1\Scripts\pip install -r requirements.txt)
+    "python.defaultInterpreterPath": "${workspaceFolder}/.venv-1/Scripts/python.exe",
     // Ejecutar siempre desde la raíz del proyecto, con la terminal integrada
     "python.terminal.executeInFileDir": false,
     "python.terminal.activateEnvironment": true,

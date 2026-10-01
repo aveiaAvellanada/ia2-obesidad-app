@@ -29,10 +29,27 @@ from pathlib import Path
 import matplotlib
 import pandas as pd
 
-from config import FIG_DIR, ESTILO_MPL
+import sys
+if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+from config import FIG_DIR, ESTILO_MPL, ROOT
+import numpy as np
+
+RESULTADOS_TEXTO_DIR = ROOT / "resultados_texto"
+_PASOS_INICIADOS = set()
 
 OPCIONES = {"mostrar": True, "guardar": True, "graficar_tablas": True}
 _backend_listo = False
+
+# Receptor opcional de la salida (p. ej. una interfaz gráfica). Si es None todo va a
+# la consola como siempre; si no, títulos, notas, tablas y figuras se le entregan a él con
+# sus métodos titulo(texto), subtitulo(texto), nota(texto), tabla(df, titulo) y figura(fig, nombre).
+RECEPTOR = None
 
 # Etapa/paso en curso: lo fija src/pasos.py para poder nombrar las figuras de las tablas
 _CONTEXTO = {"carpeta": "tablas_sueltas", "paso": "suelta", "n_tabla": 0}
@@ -105,7 +122,8 @@ def fijar_contexto(carpeta: str, paso: str):
     _CONTEXTO["n_tabla"] = 0
 
 
-def mostrar(fig, nombre: str, etapa: str, ventana: bool | None = None):
+def mostrar(fig, nombre: str, etapa: str, ventana: bool | None = None, datos=None,
+            es_tabla: bool = False):
     """Guarda la figura en figures/<etapa>/<nombre>.png y/o la abre en ventana.
 
     `ventana=False` fuerza que no se abra ventana aunque el modo interactivo esté
@@ -122,7 +140,11 @@ def mostrar(fig, nombre: str, etapa: str, ventana: bool | None = None):
         ruta = carpeta / f"{nombre}.png"
         fig.savefig(ruta, bbox_inches="tight")
         print(f"   [figura guardada] {ruta.relative_to(FIG_DIR.parent)}")
-    if abrir:
+        if not es_tabla:
+            _guardar_figura_texto(fig, nombre, etapa, datos=datos)
+    if RECEPTOR is not None and ventana is not False:
+        RECEPTOR.figura(fig, nombre)
+    elif abrir:
         print("   [ventana abierta] cierra la ventana de la gráfica para continuar...")
         # Variable de entorno para pruebas automáticas: cierra la ventana sola tras N ms
         auto_ms = os.environ.get("IA2_AUTOCERRAR_MS")
@@ -138,17 +160,23 @@ def mostrar(fig, nombre: str, etapa: str, ventana: bool | None = None):
 # ---------- Texto ----------
 
 def titulo(texto: str):
+    if RECEPTOR is not None:
+        return RECEPTOR.titulo(texto)
     print("\n" + "=" * 100)
     print(texto)
     print("=" * 100)
 
 
 def subtitulo(texto: str):
+    if RECEPTOR is not None:
+        return RECEPTOR.subtitulo(texto)
     print("\n--- " + texto + " ---")
 
 
 def nota(texto: str):
     """Imprime una explicación (equivalente a las celdas markdown del notebook)."""
+    if RECEPTOR is not None:
+        return RECEPTOR.nota(textwrap.dedent(texto).strip())
     print()
     for parrafo in textwrap.dedent(texto).strip().split("\n\n"):
         lineas = parrafo.splitlines()
@@ -171,7 +199,9 @@ def tabla(df, titulo_tabla: str | None = None, decimales: int = 4, grafica: bool
     if isinstance(df, pd.Series):
         df = df.to_frame()
     d = df.round(decimales)
-    if texto:
+    if RECEPTOR is not None and texto:
+        RECEPTOR.tabla(d, titulo_tabla)
+    elif texto:
         if titulo_tabla:
             subtitulo(titulo_tabla)
         with pd.option_context("display.max_rows", 200, "display.max_columns", 40,
@@ -179,8 +209,16 @@ def tabla(df, titulo_tabla: str | None = None, decimales: int = 4, grafica: bool
             print(d.to_string())
         print()
 
+    _CONTEXTO["n_tabla"] += 1
+    nombre = f"{_CONTEXTO['paso']}_tabla{_CONTEXTO['n_tabla']}"
+    if titulo_tabla:
+        nombre += "_" + _slug(titulo_tabla)
+
+    if OPCIONES["guardar"]:
+        _guardar_tabla_texto(d, titulo_tabla, decimales, nombre)
+
     if grafica and OPCIONES["graficar_tablas"] and OPCIONES["guardar"]:
-        _guardar_figura_de_tabla(d, titulo_tabla, decimales)
+        _guardar_figura_de_tabla(d, titulo_tabla, decimales, nombre)
 
 
 # ---------- Tablas convertidas en figura ----------
@@ -249,6 +287,262 @@ def _formatear_columna(serie, decimales: int, ancho: int = 24) -> list:
             s = str(v)
             salida_col.append(s if len(s) <= ancho else s[:ancho - 1] + "…")
     return salida_col
+
+
+def _formatear_df(df: pd.DataFrame, decimales: int) -> pd.DataFrame:
+    """Aplica el mismo formateo numérico que la imagen de la tabla."""
+    df_f = pd.DataFrame(index=df.index)
+    for col in df.columns:
+        df_f[col] = _formatear_columna(df[col], decimales)
+    return df_f
+
+
+def _guardar_tabla_texto(df: pd.DataFrame, titulo_tabla: str | None, decimales: int, nombre: str):
+    """Guarda la tabla en Markdown y CSV en resultados_texto/ y figures/."""
+    etapa = _CONTEXTO["carpeta"]
+    paso = str(_CONTEXTO["paso"])
+    df_formateado = _formatear_df(df, decimales)
+
+    md_titulo = f"### {titulo_tabla}\n\n" if titulo_tabla else f"### Tabla {nombre}\n\n"
+    md_contenido = md_titulo + df_formateado.to_markdown() + "\n\n"
+
+    # 1. Archivo del paso: resultados_texto/<etapa>/<paso>.md
+    dir_etapa_res = RESULTADOS_TEXTO_DIR / etapa
+    dir_etapa_res.mkdir(parents=True, exist_ok=True)
+    ruta_paso_md = dir_etapa_res / f"{paso}.md"
+
+    modo = "a" if (etapa, paso) in _PASOS_INICIADOS else "w"
+    _PASOS_INICIADOS.add((etapa, paso))
+    with open(ruta_paso_md, modo, encoding="utf-8") as f:
+        if modo == "w":
+            f.write(f"# Etapa {etapa} · Paso {paso}\n\n")
+        f.write(md_contenido)
+
+    # 2. Archivos individuales en resultados_texto/<etapa>/tablas/
+    dir_tablas_res = dir_etapa_res / "tablas"
+    dir_tablas_res.mkdir(parents=True, exist_ok=True)
+    with open(dir_tablas_res / f"{nombre}.md", "w", encoding="utf-8") as f:
+        f.write(md_contenido)
+    df_formateado.to_csv(dir_tablas_res / f"{nombre}.csv", encoding="utf-8")
+
+    # 3. Junto al PNG en figures/<etapa>/tablas/
+    dir_tablas_fig = Path(FIG_DIR) / etapa / "tablas"
+    dir_tablas_fig.mkdir(parents=True, exist_ok=True)
+    with open(dir_tablas_fig / f"{nombre}.md", "w", encoding="utf-8") as f:
+        f.write(md_contenido)
+    df_formateado.to_csv(dir_tablas_fig / f"{nombre}.csv", encoding="utf-8")
+
+
+def extraer_datos_figura(fig, nombre: str, datos=None):
+    """Extrae datos numéricos y estructurados de una figura de matplotlib."""
+    if datos is not None:
+        if isinstance(datos, pd.DataFrame):
+            return f"### {nombre}\n\n" + datos.to_markdown() + "\n\n", [(nombre, datos)]
+        elif isinstance(datos, pd.Series):
+            df_s = datos.to_frame()
+            return f"### {nombre}\n\n" + df_s.to_markdown() + "\n\n", [(nombre, df_s)]
+        elif isinstance(datos, dict):
+            blocks, dfs = [], []
+            for k, v in datos.items():
+                if isinstance(v, (pd.DataFrame, pd.Series)):
+                    v_df = v.to_frame() if isinstance(v, pd.Series) else v
+                    blocks.append(f"#### {k}\n\n" + v_df.to_markdown())
+                    dfs.append((f"{nombre}_{_slug(k)}", v_df))
+            if blocks:
+                return f"### {nombre}\n\n" + "\n\n".join(blocks) + "\n\n", dfs
+
+    md_parts = []
+    dfs = []
+    suptitle = fig._suptitle.get_text() if hasattr(fig, "_suptitle") and fig._suptitle else ""
+
+    for idx, ax in enumerate(fig.axes):
+        ax_title = ax.get_title() or (suptitle if len(fig.axes) == 1 else f"Panel_{idx+1}")
+
+        # 1. Decision Tree nodes
+        tree_texts = [t.get_text().strip() for t in ax.texts if any(k in t.get_text() for k in ("samples =", "gini =", "squared_error =", "value ="))]
+        if tree_texts:
+            node_records = []
+            for t in ax.texts:
+                txt = t.get_text().strip()
+                if not txt or txt in ("True", "False"):
+                    continue
+                lines = [l.strip() for l in txt.split("\n") if l.strip()]
+                rec = {"nodo": len(node_records) + 1}
+                for l in lines:
+                    if "<=" in l:
+                        rec["condicion"] = l
+                    elif "=" in l:
+                        k, v = l.split("=", 1)
+                        rec[k.strip()] = v.strip()
+                    else:
+                        rec["info"] = l
+                node_records.append(rec)
+            df_tree = pd.DataFrame(node_records)
+            md_parts.append(f"#### {ax_title or 'Estructura del árbol'}\n\n" + df_tree.to_markdown() + "\n")
+            dfs.append((f"{nombre}_{_slug(ax_title or 'arbol')}", df_tree))
+            continue
+
+        # 2. QuadMesh / imshow (heatmaps / matrices de confusión / contingencia)
+        meshes = [c for c in ax.collections if hasattr(c, "get_array") and "QuadMesh" in type(c).__name__]
+        if meshes and meshes[0].get_array() is not None:
+            arr = meshes[0].get_array()
+            xt = [t.get_text() for t in ax.get_xticklabels() if t.get_text()]
+            yt = [t.get_text() for t in ax.get_yticklabels() if t.get_text()]
+            if xt and yt and len(xt) * len(yt) == arr.size:
+                df_cm = pd.DataFrame(np.asarray(arr).reshape(len(yt), len(xt)), index=yt, columns=xt)
+            else:
+                df_cm = pd.DataFrame(np.asarray(arr))
+            md_parts.append(f"#### {ax_title or 'Matriz'}\n\n" + df_cm.to_markdown() + "\n")
+            dfs.append((f"{nombre}_{_slug(ax_title or 'matriz')}", df_cm))
+            continue
+        elif ax.images and ax.images[0].get_array() is not None:
+            arr = ax.images[0].get_array()
+            xt = [t.get_text() for t in ax.get_xticklabels() if t.get_text()]
+            yt = [t.get_text() for t in ax.get_yticklabels() if t.get_text()]
+            if xt and yt and len(xt) * len(yt) == arr.size:
+                df_cm = pd.DataFrame(np.asarray(arr).reshape(len(yt), len(xt)), index=yt, columns=xt)
+            else:
+                df_cm = pd.DataFrame(np.asarray(arr))
+            md_parts.append(f"#### {ax_title or 'Matriz'}\n\n" + df_cm.to_markdown() + "\n")
+            dfs.append((f"{nombre}_{_slug(ax_title or 'matriz')}", df_cm))
+            continue
+
+        # 3. Bar Containers (gráficos de barras)
+        bar_containers = [c for c in ax.containers if "BarContainer" in type(c).__name__]
+        if bar_containers:
+            xt = [t.get_text() for t in ax.get_xticklabels() if t.get_text()]
+            yt = [t.get_text() for t in ax.get_yticklabels() if t.get_text()]
+            for c_idx, c in enumerate(bar_containers):
+                lbl = c.get_label() if c.get_label() and not c.get_label().startswith("_") else ("valor" if len(bar_containers) == 1 else f"serie_{c_idx+1}")
+                heights = [p.get_height() for p in c]
+                widths = [p.get_width() for p in c]
+                if xt and len(xt) == len(heights):
+                    df_bar = pd.DataFrame({lbl: heights}, index=xt)
+                    df_bar.index.name = ax.get_xlabel() or "categoria"
+                elif yt and len(yt) == len(widths):
+                    df_bar = pd.DataFrame({lbl: widths}, index=yt)
+                    df_bar.index.name = ax.get_ylabel() or "categoria"
+                else:
+                    df_bar = pd.DataFrame({lbl: heights})
+                md_parts.append(f"#### {ax_title or 'Valores de barras'}\n\n" + df_bar.to_markdown() + "\n")
+                dfs.append((f"{nombre}_{_slug(ax_title or 'barras')}", df_bar))
+            continue
+
+        # 4. Errorbar Containers (p. ej. estadístico gap)
+        err_containers = [c for c in ax.containers if "ErrorbarContainer" in type(c).__name__]
+        if err_containers:
+            for c in err_containers:
+                data_line = c[0]
+                x_vals = data_line.get_xdata()
+                y_vals = data_line.get_ydata()
+                err_dict = {"K": x_vals, ax.get_ylabel() or "valor": y_vals}
+                if hasattr(c, "has_yerr") and c.has_yerr and len(c) > 2 and len(c[2]) > 0:
+                    try:
+                        segs = c[2][0].get_segments()
+                        err_dict["s_k"] = [(seg[1][1] - seg[0][1]) / 2.0 for seg in segs]
+                    except Exception:
+                        pass
+                df_err = pd.DataFrame(err_dict).set_index("K")
+                md_parts.append(f"#### {ax_title or 'Estadístico Gap'}\n\n" + df_err.to_markdown() + "\n")
+                dfs.append((f"{nombre}_{_slug(ax_title or 'gap')}", df_err))
+            continue
+
+        # 5. Lines (curvas de hiperparámetros, codo, silueta, etc.)
+        lines = [l for l in ax.get_lines() if len(l.get_xdata()) >= 2 and not (len(l.get_xdata()) == 2 and l.get_xdata()[0] == l.get_xdata()[1])]
+        if lines:
+            ldict = {}
+            x_name = ax.get_xlabel() or "x"
+            y_name = ax.get_ylabel() or "y"
+            for l_idx, l in enumerate(lines):
+                lbl = l.get_label()
+                if not lbl or lbl.startswith("_child") or lbl.startswith("_"):
+                    lbl = f"{y_name}_{l_idx+1}" if len(lines) > 1 else y_name
+                s = pd.Series(l.get_ydata(), index=l.get_xdata(), name=lbl)
+                s = s[~s.index.duplicated(keep="first")]
+                ldict[lbl] = s
+            df_lines = pd.DataFrame(ldict)
+            df_lines.index.name = x_name
+            md_parts.append(f"#### {ax_title or 'Curva'}\n\n" + df_lines.to_markdown() + "\n")
+            dfs.append((f"{nombre}_{_slug(ax_title or 'curva')}", df_lines))
+            continue
+
+        # 6. Scatter plots (PCA, pred vs real)
+        scatters = [c for c in ax.collections if "PathCollection" in type(c).__name__]
+        if scatters:
+            offsets = scatters[0].get_offsets()
+            if len(offsets) > 0:
+                x_vals = offsets[:, 0]
+                y_vals = offsets[:, 1]
+                xlab = ax.get_xlabel() or "x"
+                ylab = ax.get_ylabel() or "y"
+                df_pts = pd.DataFrame({xlab: x_vals, ylab: y_vals})
+                summary_data = {
+                    "N_puntos": len(df_pts),
+                    f"{xlab}_min": round(float(x_vals.min()), 4),
+                    f"{xlab}_max": round(float(x_vals.max()), 4),
+                    f"{xlab}_media": round(float(x_vals.mean()), 4),
+                    f"{ylab}_min": round(float(y_vals.min()), 4),
+                    f"{ylab}_max": round(float(y_vals.max()), 4),
+                    f"{ylab}_media": round(float(y_vals.mean()), 4),
+                }
+                if len(df_pts) > 1 and np.std(x_vals) > 0 and np.std(y_vals) > 0:
+                    summary_data["correlacion_r"] = round(float(np.corrcoef(x_vals, y_vals)[0, 1]), 4)
+                df_sum = pd.DataFrame([summary_data]).T
+                df_sum.columns = ["Valor"]
+                md_parts.append(f"#### {ax_title or 'Distribución de puntos'}\n\n" + df_sum.to_markdown() + "\n")
+                dfs.append((f"{nombre}_{_slug(ax_title or 'scatter')}_resumen", df_sum))
+                dfs.append((f"{nombre}_{_slug(ax_title or 'scatter')}_puntos", df_pts))
+                continue
+
+    if not md_parts:
+        md_parts.append(f"#### {nombre}\n\nNo se detectaron datos numéricos directamente en la figura.\n")
+
+    md_output = f"### Datos de la figura: {nombre}\n\n" + "\n\n".join(md_parts) + "\n\n"
+    return md_output, dfs
+
+
+def _guardar_figura_texto(fig, nombre: str, etapa: str, datos=None):
+    """Extrae y guarda los datos de la figura en Markdown y CSV."""
+    try:
+        md_str, dfs = extraer_datos_figura(fig, nombre, datos=datos)
+    except Exception as e:
+        md_str = f"### Datos de la figura: {nombre}\n\n[aviso: no se pudieron extraer datos de la figura: {e}]\n\n"
+        dfs = []
+
+    # 1. figures/<etapa>/<nombre>.md y CSV
+    carpeta_fig = Path(FIG_DIR) / etapa
+    carpeta_fig.mkdir(parents=True, exist_ok=True)
+    with open(carpeta_fig / f"{nombre}.md", "w", encoding="utf-8") as f:
+        f.write(md_str)
+    if dfs:
+        if len(dfs) == 1:
+            dfs[0][1].to_csv(carpeta_fig / f"{nombre}.csv", encoding="utf-8")
+        else:
+            for sub_name, df_sub in dfs:
+                df_sub.to_csv(carpeta_fig / f"{sub_name}.csv", encoding="utf-8")
+
+    # 2. resultados_texto/<etapa>/
+    etapa_limpia = etapa.split("/")[0]
+    dir_etapa_res = RESULTADOS_TEXTO_DIR / etapa_limpia
+    dir_etapa_res.mkdir(parents=True, exist_ok=True)
+    with open(dir_etapa_res / f"{nombre}.md", "w", encoding="utf-8") as f:
+        f.write(md_str)
+    if dfs:
+        if len(dfs) == 1:
+            dfs[0][1].to_csv(dir_etapa_res / f"{nombre}.csv", encoding="utf-8")
+        else:
+            for sub_name, df_sub in dfs:
+                df_sub.to_csv(dir_etapa_res / f"{sub_name}.csv", encoding="utf-8")
+
+    # 3. resultados_texto/<etapa>/<paso>.md
+    paso = str(_CONTEXTO["paso"])
+    ruta_paso_md = dir_etapa_res / f"{paso}.md"
+    modo = "a" if (etapa_limpia, paso) in _PASOS_INICIADOS else "w"
+    _PASOS_INICIADOS.add((etapa_limpia, paso))
+    with open(ruta_paso_md, modo, encoding="utf-8") as f:
+        if modo == "w":
+            f.write(f"# Etapa {etapa_limpia} · Paso {paso}\n\n")
+        f.write(md_str)
 
 
 def _es_numerica(df) -> bool:
@@ -365,17 +659,13 @@ def _figura_de_tabla(df, titulo_tabla, decimales):
     return _fig_tabla_imagen(df, titulo_tabla, decimales)
 
 
-def _guardar_figura_de_tabla(df, titulo_tabla, decimales):
+def _guardar_figura_de_tabla(df, titulo_tabla, decimales, nombre: str):
     """Genera el PNG de la tabla en figures/<etapa>/tablas/. Nunca interrumpe el paso."""
     _asegurar()
-    _CONTEXTO["n_tabla"] += 1
-    nombre = f"{_CONTEXTO['paso']}_tabla{_CONTEXTO['n_tabla']}"
-    if titulo_tabla:
-        nombre += "_" + _slug(titulo_tabla)
     try:
         fig = _figura_de_tabla(df, titulo_tabla, decimales)
     except Exception as e:  # una tabla rara no debe tumbar el paso entero
         print(f"   [aviso] no se pudo dibujar esta tabla como figura ({type(e).__name__}: {e});"
               " queda sólo el texto de arriba.")
         return
-    mostrar(fig, nombre, f"{_CONTEXTO['carpeta']}/tablas", ventana=False)
+    mostrar(fig, nombre, f"{_CONTEXTO['carpeta']}/tablas", ventana=False, es_tabla=True)

@@ -8,7 +8,7 @@ venv/
 data/clf.csv
 data/reg.csv
 cache/
-# Figuras generadas (se regeneran con run_all.py)
-figures/
 .DS_Store
 Thumbs.db
+# Archivos de bloqueo temporales de LibreOffice/Word mientras un .docx está abierto
+.~lock.*#
