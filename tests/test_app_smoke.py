@@ -25,3 +25,19 @@ def test_paso_se_renderiza(etapa, paso):
     assert not at.exception, [e.value for e in at.exception]
     assert not at.error, [e.value for e in at.error]
     assert at.subheader[0].value.startswith(paso)
+
+
+def test_variante_b_sin_features_muestra_un_aviso_y_no_falla():
+    solo_wh = {"features": ["Weight", "Height"], "test_size": 0.2, "seed": 42}
+    for paso in ("4", "4.1", "7"):
+        at = abrir("02", paso, **{"params::split_clf": solo_wh})
+        assert not at.exception, [e.value for e in at.exception]
+        if paso != "7":    # el paso 7 siempre usa todas las features menos Weight/Height
+            assert at.warning, f"el paso {paso} debería avisar"
+
+
+def test_sin_features_se_avisa_con_un_error_claro():
+    vacio = {"features": [], "test_size": 0.2, "seed": 42}
+    at = abrir("02", "3", **{"params::split_clf": vacio})
+    assert not at.exception
+    assert at.error and "al menos una feature" in at.error[0].value
