@@ -10,6 +10,8 @@ los calcula bajo demanda (y los deja en caché). Ver `cli()` para las opciones
 de línea de comandos y `menu()` para el menú interactivo.
 """
 import argparse
+import ast
+import importlib.util
 import inspect
 import sys
 import time
@@ -24,12 +26,74 @@ from src import salida, cache
 _RAIZ_PROYECTO = Path(__file__).resolve().parents[1]
 
 
+def _relativa(archivo) -> str:
+    try:
+        return Path(archivo).resolve().relative_to(_RAIZ_PROYECTO).as_posix()
+    except ValueError:
+        return Path(archivo).as_posix()
+
+
+def _asignacion(archivo, nombre):
+    """Línea donde se asigna `nombre` a nivel de módulo en `archivo` (p. ej. N_ARBOLES = [...]),
+    o, si el archivo lo importa con `from x import nombre`, la de su definición en x."""
+    arbol = ast.parse(Path(archivo).read_text(encoding="utf-8"))
+    for nodo in arbol.body:
+        destinos = (nodo.targets if isinstance(nodo, ast.Assign)
+                    else [nodo.target] if isinstance(nodo, ast.AnnAssign) else [])
+        if any(isinstance(t, ast.Name) and t.id == nombre for t in destinos):
+            return f"{_relativa(archivo)}:{nodo.lineno}"
+    for nodo in arbol.body:
+        if isinstance(nodo, ast.ImportFrom) and nodo.module and nodo.level == 0:
+            for alias in nodo.names:
+                if (alias.asname or alias.name) == nombre:
+                    spec = importlib.util.find_spec(nodo.module)
+                    if spec is not None and spec.origin:
+                        return _asignacion(spec.origin, alias.name)
+    return ""
+
+
+def ubicar(nombre: str, espacio: dict) -> str:
+    """'archivo:línea' donde se define `nombre`, buscado en el espacio de nombres de un módulo
+    de etapa (el __globals__ de sus pasos). Sirve para funciones y clases (su `def`, aunque
+    vengan de src/), variables del módulo (su asignación) y constantes importadas (como
+    RANDOM_STATE de config.py). Admite nombres con punto: 'e02.make_models'. Se calcula al
+    vuelo, así que nunca se desactualiza; devuelve "" si no lo encuentra."""
+    partes = nombre.split(".")
+    archivo = espacio.get("__file__")
+    for parte in partes[:-1]:                 # 'e02.make_models' -> módulo e02
+        modulo = espacio.get(parte)
+        if not inspect.ismodule(modulo):
+            return ""
+        espacio, archivo = vars(modulo), getattr(modulo, "__file__", None)
+    objeto = espacio.get(partes[-1])
+    if inspect.isfunction(objeto) or inspect.isclass(objeto):
+        try:
+            _, linea = inspect.getsourcelines(objeto)
+            return f"{_relativa(inspect.getsourcefile(objeto))}:{linea}"
+        except (OSError, TypeError):
+            return ""
+    return _asignacion(archivo, partes[-1]) if archivo else ""
+
+
+def _linea_ubicaciones(titulo, nombres, espacio) -> str:
+    """'parámetros: N_ARBOLES etapas/e02_clasificacion.py:287 · make_models ...:96'."""
+    trozos = [f"{n} {ubicar(n, espacio) or '(no encontrado)'}" for n in nombres]
+    return f"{titulo}: " + " · ".join(trozos) if trozos else ""
+
+
 @dataclass
 class Paso:
     id: str
     titulo: str
     fn: Callable
     figuras: int = 0
+    # Nombres (en el módulo de la etapa) de lo que hay que tocar para cambiar este paso:
+    # hiperparámetros, grillas, listas de valores... El menú muestra su archivo:línea.
+    parametros: tuple = ()
+
+    @property
+    def linea_parametros(self) -> str:
+        return _linea_ubicaciones("parámetros", self.parametros, self.fn.__globals__)
 
     @property
     def ubicacion(self) -> str:
@@ -50,7 +114,10 @@ class Paso:
     def etiqueta(self):
         figs = f"  ({self.figuras} figura{'s' if self.figuras != 1 else ''})" if self.figuras else ""
         ubi = f"  {self.ubicacion}" if self.ubicacion else ""
-        return f"[{self.id:>4}] {self.titulo}{figs}{ubi}"
+        texto = f"[{self.id:>4}] {self.titulo}{figs}{ubi}"
+        if self.linea_parametros:   # debajo, alineada con el título del paso
+            texto += "\n" + " " * 7 + self.linea_parametros
+        return texto
 
 
 @dataclass
@@ -60,13 +127,25 @@ class Etapa:
     slug: str            # nombre corto sin acentos para la carpeta de figuras: "eda", "clasificacion"
     descripcion: str = ""
     pasos: list = field(default_factory=list)
+    # Nombres de lo que afecta a casi todos los pasos (semilla, split...): van una vez, en la
+    # cabecera del menú, en lugar de repetirse en cada paso.
+    globales: tuple = ()
 
     # ---- registro ----
-    def paso(self, id: str, titulo: str, figuras: int = 0):
+    def paso(self, id: str, titulo: str, figuras: int = 0, parametros: tuple = ()):
+        """`parametros`: nombres de lo que controla este paso fuera de su propia función
+        (p. ej. ("N_ARBOLES", "make_models")); el menú indica dónde está cada uno."""
         def decorador(fn):
-            self.pasos.append(Paso(id, titulo, fn, figuras))
+            self.pasos.append(Paso(id, titulo, fn, figuras, tuple(parametros)))
             return fn
         return decorador
+
+    @property
+    def linea_globales(self) -> str:
+        if not self.pasos:
+            return ""
+        return _linea_ubicaciones("Comunes a todos los pasos", self.globales,
+                                  self.pasos[0].fn.__globals__)
 
     @property
     def carpeta_figuras(self):
@@ -90,7 +169,8 @@ class Etapa:
         # (figures/<etapa>/tablas/<paso>_tablaN_<titulo>.png)
         salida.fijar_contexto(self.carpeta_figuras, p.id)
         salida.titulo(f"Etapa {self.numero} — {self.nombre}   ·   Paso {p.id}: {p.titulo}"
-                      + (f"\n{p.ubicacion}" if p.ubicacion else ""))
+                      + (f"\n{p.ubicacion}" if p.ubicacion else "")
+                      + (f"\n{p.linea_parametros}" if p.linea_parametros else ""))
         t0 = time.time()
         p.fn()
         print(f"\n   (paso {p.id} terminado en {time.time() - t0:.1f} s)")
@@ -104,6 +184,8 @@ class Etapa:
         print(f"\nEtapa {self.numero} — {self.nombre}")
         if self.descripcion:
             print("  " + self.descripcion)
+        if self.linea_globales:
+            print("  " + self.linea_globales)
         for p in self.pasos:
             print("  " + p.etiqueta)
 

@@ -48,7 +48,8 @@ from src.preprocessing import cargar_reg
 from src.salida import subtitulo, tabla
 
 etapa = Etapa("03", "Regresión de Weight", "regresion",
-              "Árbol, Random Forest y KNN para predecir el peso sin usar NObeyesdad")
+              "Árbol, Random Forest y KNN para predecir el peso sin usar NObeyesdad",
+              globales=("RANDOM_STATE", "datos"))
 
 _estado = {}
 
@@ -156,7 +157,8 @@ def paso_1_datos():
     tabla(d["y_train"].describe().round(2), "Weight en train")
 
 
-@etapa.paso("2", "Modelos, grillas y ajuste con GridSearchCV (tabla con R² ajustado)")
+@etapa.paso("2", "Modelos, grillas y ajuste con GridSearchCV (tabla con R² ajustado)",
+            parametros=("make_models", "_ajustar"))
 def paso_2_modelos():
     for name, (model, grid) in make_models().items():
         subtitulo(name)
@@ -166,7 +168,8 @@ def paso_2_modelos():
     tabla(t, "Resultados: RMSE de CV y métricas en test (MAE, RMSE, R², R²_adj)")
 
 
-@etapa.paso("2.1", "Curva del mejor K de KNN (RMSE de CV vs K)", figuras=1)
+@etapa.paso("2.1", "Curva del mejor K de KNN (RMSE de CV vs K)", figuras=1,
+            parametros=("make_models",))
 def paso_2_1_curva_k():
     fitted, _, _ = modelos()
     fig, ax = plt.subplots(figsize=(9, 5))
@@ -204,7 +207,8 @@ def barrido_n_arboles():
 
 
 @etapa.paso("2.2", "¿Cuántos árboles? Random Forest con "
-            + ", ".join(map(str, N_ARBOLES[:-1])) + f" y {N_ARBOLES[-1]}", figuras=1)
+            + ", ".join(map(str, N_ARBOLES[:-1])) + f" y {N_ARBOLES[-1]}", figuras=1,
+            parametros=("N_ARBOLES", "_barrido_n_arboles"))
 def paso_2_2_n_arboles():
     df = barrido_n_arboles()
     tabla(df, "Random Forest (regresión): error y coste según el número de árboles", 4)
@@ -227,7 +231,8 @@ def paso_2_2_n_arboles():
           f"{cv_r.loc[n_suf] - cv_r.loc[n_max]:.4f} kg de RMSE.")
 
 
-@etapa.paso("3", "Tres árboles de regresión: completo, podado y muy podado", figuras=4)
+@etapa.paso("3", "Tres árboles de regresión: completo, podado y muy podado", figuras=4,
+            parametros=("arboles_prepoda",))
 def paso_3_tres_arboles():
     d = datos()
     X = d["X"]
@@ -257,7 +262,8 @@ def paso_3_tres_arboles():
     _pred_vs_real(arboles_prepoda(), titulos, "3_pred_vs_real_tres_arboles")
 
 
-@etapa.paso("4", "Predicho vs real y residuos — modelos principales (test)", figuras=2)
+@etapa.paso("4", "Predicho vs real y residuos — modelos principales (test)", figuras=2,
+            parametros=("make_models",))
 def paso_4_pred_vs_real():
     fitted, results, _ = modelos()
     titulos = {name: (f"{name}\nRMSE={results[name]['test_RMSE']:.2f} kg  "
@@ -277,7 +283,8 @@ def paso_4_pred_vs_real():
     etapa.figura(fig, "4_residuos_modelos")
 
 
-@etapa.paso("5", "Importancia de features (Random Forest)", figuras=1)
+@etapa.paso("5", "Importancia de features (Random Forest)", figuras=1,
+            parametros=("make_models",))
 def paso_5_importancias():
     fitted, _, _ = modelos()
     d = datos()
@@ -291,7 +298,8 @@ def paso_5_importancias():
     etapa.figura(fig, "5_importancias_rf")
 
 
-@etapa.paso("6", "Comparación de modelos y explicación del R² ajustado", figuras=1)
+@etapa.paso("6", "Comparación de modelos y explicación del R² ajustado", figuras=1,
+            parametros=("make_models",))
 def paso_6_comparacion():
     _, _, t = modelos()
     fig, axes = plt.subplots(1, 3, figsize=(18, 4))
