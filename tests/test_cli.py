@@ -56,4 +56,5 @@ def test_sin_pantalla_las_figuras_se_guardan_en_vez_de_perderse(monkeypatch):
 def test_guardar_tablas_tiene_sus_dependencias():
     """--guardar y run_all.py exportan las tablas con DataFrame.to_markdown() (tabulate)."""
     import pandas as pd
-    assert "| a |" in pd.DataFrame({"a": [1]}).to_markdown()
+    md = pd.DataFrame({"a": [1]}).to_markdown()      # sin tabulate lanza ImportError
+    assert md.splitlines()[0].split("|")[2].strip() == "a" and "|---" in md
