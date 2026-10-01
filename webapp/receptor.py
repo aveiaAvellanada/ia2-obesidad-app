@@ -12,19 +12,34 @@ from webapp import ui
 
 
 class ReceptorStreamlit:
+    """Un subtítulo se muestra sólo si le sigue una figura o una tabla sin título propio:
+    en el CLI muchos subtítulos encabezan texto impreso, que aquí se descarta."""
+
+    def __init__(self):
+        self._subtitulo = None
+
     def titulo(self, texto):
-        pass
+        self._subtitulo = None
 
     def subtitulo(self, texto):
-        ui.subtitulo(texto)
+        self._subtitulo = texto
 
     def nota(self, texto):
         pass
 
+    def _volcar_subtitulo(self):
+        if self._subtitulo:
+            ui.subtitulo(self._subtitulo)
+        self._subtitulo = None
+
     def tabla(self, df, titulo=None):
+        if titulo:
+            self._subtitulo = None
+        self._volcar_subtitulo()
         ui.tabla(df, titulo)
 
     def figura(self, fig, nombre=None):
+        self._volcar_subtitulo()
         ui.figura(fig)
 
 
