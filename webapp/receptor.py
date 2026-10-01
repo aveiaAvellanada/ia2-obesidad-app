@@ -15,14 +15,21 @@ class ReceptorStreamlit:
     """Un subtítulo se muestra sólo si le sigue una figura o una tabla sin título propio:
     en el CLI muchos subtítulos encabezan texto impreso, que aquí se descarta."""
 
-    def __init__(self):
+    def __init__(self, reemplazos=None):
         self._subtitulo = None
+        self._reemplazos = reemplazos or {}
+
+    def _texto(self, texto):
+        """Ajusta un título del CLI a los parámetros de la app (p. ej. 'CV 3×10' -> 'CV 3×3')."""
+        for viejo, nuevo in self._reemplazos.items():
+            texto = texto.replace(viejo, nuevo)
+        return texto
 
     def titulo(self, texto):
         self._subtitulo = None
 
     def subtitulo(self, texto):
-        self._subtitulo = texto
+        self._subtitulo = self._texto(texto)
 
     def nota(self, texto):
         pass
@@ -36,7 +43,7 @@ class ReceptorStreamlit:
         if titulo:
             self._subtitulo = None
         self._volcar_subtitulo()
-        ui.tabla(df, titulo)
+        ui.tabla(df, self._texto(titulo) if titulo else titulo)
 
     def figura(self, fig, nombre=None):
         self._volcar_subtitulo()
@@ -44,12 +51,12 @@ class ReceptorStreamlit:
 
 
 @contextlib.contextmanager
-def activo():
+def activo(reemplazos=None):
     # OPCIONES se toca directamente (no con salida.configurar): configurar(mostrar=True)
     # lanzaría un subproceso de prueba de QtAgg dentro del servidor de Streamlit.
     previo, opciones = salida.RECEPTOR, dict(salida.OPCIONES)
     salida.OPCIONES.update(mostrar=False, guardar=False, graficar_tablas=False)
-    salida.RECEPTOR = ReceptorStreamlit()
+    salida.RECEPTOR = ReceptorStreamlit(reemplazos)
     try:
         yield
     finally:
@@ -57,7 +64,8 @@ def activo():
         salida.OPCIONES.update(opciones)
 
 
-def ejecutar(fn):
-    """Ejecuta un paso de etapas/ y muestra sus figuras y tablas; su stdout se descarta."""
-    with activo(), contextlib.redirect_stdout(io.StringIO()):
+def ejecutar(fn, reemplazos=None):
+    """Ejecuta un paso de etapas/ y muestra sus figuras y tablas; su stdout se descarta.
+    `reemplazos` ({texto: nuevo}) corrige los títulos que citan parámetros fijos del CLI."""
+    with activo(reemplazos), contextlib.redirect_stdout(io.StringIO()):
         fn()

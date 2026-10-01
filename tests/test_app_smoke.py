@@ -64,3 +64,29 @@ def test_iteraciones_kmeans_slider_y_reproduccion():
     assert not at.exception, [e.value for e in at.exception]
     at.button(key="e04_play").click().run()
     assert not at.exception, [e.value for e in at.exception]
+
+
+def test_comparacion_final_usa_los_parametros_activos():
+    def tabla_a(at):
+        return next(d.value for d in at.dataframe
+                    if "Árbol de decisión" in d.value.index and "test_accuracy" in d.value.columns)
+
+    def en_cache():
+        return set((RAIZ / "cache").glob("*")) if (RAIZ / "cache").exists() else set()
+
+    antes = en_cache()
+    at = abrir("05", "1")
+    base = tabla_a(at).loc["Árbol de decisión", "test_accuracy"]
+    titulos = [m.value for m in at.markdown]
+    assert any("CV 3×3" in t for t in titulos) and not any("3×10" in t for t in titulos)
+    at.session_state["params::hp_clf"] = {
+        "Árbol de decisión": {"criterion": "gini", "max_depth": 2, "min_samples_leaf": 1},
+        "Random Forest": {"n_estimators": 20, "max_depth": 0, "min_samples_leaf": 1,
+                          "max_features": "sqrt"},
+        "KNN": {"n_neighbors": 5, "weights": "uniform", "metric": "euclidean"}}
+    at.session_state["params::reales"] = {"incluir_wh": False, "repeticiones": 2}
+    at.run()
+    assert not at.exception, [e.value for e in at.exception]
+    assert tabla_a(at).loc["Árbol de decisión", "test_accuracy"] < base
+    assert any("CV 3×2" in m.value for m in at.markdown)
+    assert en_cache() == antes      # la app no escribe en cache/
