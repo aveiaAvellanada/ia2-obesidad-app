@@ -90,3 +90,33 @@ def test_comparacion_final_usa_los_parametros_activos():
     assert tabla_a(at).loc["Árbol de decisión", "test_accuracy"] < base
     assert any("CV 3×2" in m.value for m in at.markdown)
     assert en_cache() == antes      # la app no escribe en cache/
+
+
+# El multiselect de números de árboles acepta valores escritos a mano: llegan como texto.
+@pytest.mark.parametrize("etapa,paso,tarea", [("02", "3.7", "clf"), ("03", "2.2", "reg")])
+def test_numeros_de_arboles_escritos_a_mano(etapa, paso, tarea):
+    p = {"ns": [10, "30", " 75 ", "30"], "max_depth": 0, "min_samples_leaf": 1}
+    at = abrir(etapa, paso, **{f"params::narb_{tarea}": p})
+    assert not at.exception, [e.value for e in at.exception]
+    assert not at.error, [e.value for e in at.error]
+    tabla = next(d.value for d in at.dataframe if "tiempo_fit_s" in d.value.columns)
+    assert list(tabla.index) == [10, 30, 75]
+    assert set(at.multiselect(key=f"narb_{tarea}_ns").options) >= {"10", "30", "75", "800"}
+
+
+@pytest.mark.parametrize("malos", [["abc"], ["0"], ["2.5"], ["-4"], ["5000"]])
+def test_numeros_de_arboles_no_validos_dan_un_error_claro(malos):
+    p = {"ns": [10, 25, *malos], "max_depth": 0, "min_samples_leaf": 1}
+    at = abrir("02", "3.7", **{"params::narb_clf": p})
+    assert not at.exception, [e.value for e in at.exception]
+    assert at.error and malos[0] in at.error[0].value
+
+
+def test_el_multiselect_de_arboles_admite_opciones_nuevas():
+    at = abrir("02", "3.7")
+    ms = at.multiselect(key="narb_clf_ns")
+    ms.set_value([10, 25, 60]).run()
+    at.button[0].click().run()
+    assert not at.exception, [e.value for e in at.exception]
+    tabla = next(d.value for d in at.dataframe if "tiempo_fit_s" in d.value.columns)
+    assert list(tabla.index) == [10, 25, 60]

@@ -14,5 +14,5 @@ tabulate>=0.9
 # libxcb-cursor0); PyQt5 se instala con pip, sin permisos de administrador, y funciona.
 PyQt5>=5.15
 # App web interactiva y pruebas
-streamlit>=1.40
+streamlit>=1.45  # multiselect con accept_new_options (números de árboles escritos a mano)
 pytest>=8

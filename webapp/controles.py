@@ -22,6 +22,7 @@ DEF_RUIDO = {"max": 20, "paso": 5}
 DEF_REALES = {"incluir_wh": False, "repeticiones": 3}
 CRITERIOS = {"clf": ["gini", "entropy", "log_loss"], "reg": ["squared_error", "friedman_mse"]}
 N_ARBOLES_OPCIONES = [10, 25, 50, 100, 200, 400, 800]
+MAX_ARBOLES = 2000   # tope de los números escritos a mano (cada uno se entrena 6 veces: CV 5 + fit)
 
 
 def _clave(c):
@@ -191,10 +192,33 @@ def form_curva_k(tarea):
         return formulario(f"curvak_{tarea}", construir, DEF_CURVA_K, "Calcular")
 
 
+def numeros_de_arboles(valores):
+    """(enteros válidos ordenados y sin repetir, entradas no válidas). El multiselect devuelve
+    los números de la lista como int y los escritos a mano como texto ('300', ' 75 ')."""
+    buenos, malos = set(), []
+    for v in valores:
+        texto = str(v).strip()
+        try:
+            n = int(texto)
+        except ValueError:
+            n = None
+        if n is None or not 1 <= n <= MAX_ARBOLES:
+            malos.append(texto)
+        else:
+            buenos.add(n)
+    return sorted(buenos), malos
+
+
 def form_n_arboles(tarea):
     def construir(p):
-        return {"ns": st.multiselect("Números de árboles", N_ARBOLES_OPCIONES, default=p["ns"],
-                                     key=f"narb_{tarea}_ns"),
+        # Los números escritos antes siguen apareciendo como opción (ya como enteros)
+        buenos, malos = numeros_de_arboles(p["ns"])
+        elegidos = buenos + malos
+        opciones = N_ARBOLES_OPCIONES + [n for n in elegidos if n not in N_ARBOLES_OPCIONES]
+        return {"ns": st.multiselect("Números de árboles", opciones, default=elegidos,
+                                     key=f"narb_{tarea}_ns", accept_new_options=True,
+                                     help="Elige de la lista o escribe un número entero "
+                                          f"(1-{MAX_ARBOLES}) y pulsa Enter."),
                 "max_depth": st.slider("max_depth (0 = sin límite)", 0, 30, int(p["max_depth"]),
                                        key=f"narb_{tarea}_prof"),
                 "min_samples_leaf": st.slider("min_samples_leaf", 1, 50,
@@ -202,6 +226,13 @@ def form_n_arboles(tarea):
 
     with st.expander("Parámetros del barrido de árboles", expanded=True):
         p = formulario(f"narb_{tarea}", construir, DEF_N_ARBOLES, "Calcular")
+    ns, malos = numeros_de_arboles(p["ns"])
+    if malos:
+        _parar("error", "Números de árboles no válidos: " + ", ".join(f"«{m}»" for m in malos)
+               + f". Escribe enteros entre 1 y {MAX_ARBOLES}.")
+    if ns != p["ns"] and _clave(f"narb_{tarea}") in st.session_state:
+        st.session_state[_clave(f"narb_{tarea}")]["ns"] = ns   # guardados ya como enteros
+    p["ns"] = ns
     if len(p["ns"]) < 2:
         _parar("warning", "Elige al menos dos números de árboles.")
     return p
