@@ -41,3 +41,26 @@ def test_sin_features_se_avisa_con_un_error_claro():
     at = abrir("02", "3", **{"params::split_clf": vacio})
     assert not at.exception
     assert at.error and "al menos una feature" in at.error[0].value
+
+
+@pytest.mark.parametrize("k,init,max_iter", [(3, "random", 1), (7, "k-means++", 30),
+                                             (12, "random", 100)])
+def test_iteraciones_kmeans_con_parametros_extremos(k, init, max_iter):
+    at = abrir("04", "3.5", **{"params::lloyd": {"k": k, "init": init, "seed": 42,
+                                                  "max_iter": max_iter}})
+    assert not at.exception, [e.value for e in at.exception]
+    assert not at.error, [e.value for e in at.error]
+    filas = len(at.dataframe[-1].value)
+    if max_iter == 1:
+        assert filas == 1 and at.info and "No convergió" in at.info[0].value
+    else:
+        assert 1 <= filas <= max_iter
+
+
+def test_iteraciones_kmeans_slider_y_reproduccion():
+    at = abrir("04", "3.5")
+    n = len(at.dataframe[-1].value)
+    at.slider(key="e04_iter").set_value(n - 1).run()
+    assert not at.exception, [e.value for e in at.exception]
+    at.button(key="e04_play").click().run()
+    assert not at.exception, [e.value for e in at.exception]
