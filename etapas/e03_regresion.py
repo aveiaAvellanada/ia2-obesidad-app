@@ -12,10 +12,10 @@ Protocolo:
 - Hiperparámetros con GridSearchCV (5-fold, criterio RMSE negativo) sobre el train.
 - KNN dentro de Pipeline con StandardScaler.
 - Métricas en test: MAE, RMSE, R² y R² ajustado. Baseline que predice la media.
-- Tres árboles con prepoda, postpoda por ccp_alpha y curva del mejor K de KNN.
+- Tres árboles con prepoda y curva del mejor K de KNN.
 
 Pasos:
-  1    Datos y split                       3.1  Postpoda (ccp_alpha) con R²
+  1    Datos y split
   2    Modelos, grillas y ajuste (tabla)   4    Predicho vs real y residuos (modelos principales)
   2.1  Curva del mejor K de KNN            5    Importancia de features (RF)
   3    Tres árboles de regresión           6    Comparación y R² ajustado
@@ -32,7 +32,6 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.dummy import DummyRegressor
 from sklearn.ensemble import RandomForestRegressor
-from sklearn.metrics import r2_score
 from sklearn.model_selection import GridSearchCV, KFold, cross_val_score, train_test_split
 from sklearn.neighbors import KNeighborsRegressor
 from sklearn.pipeline import Pipeline
@@ -42,14 +41,15 @@ from sklearn.tree import DecisionTreeRegressor, plot_tree
 from config import RANDOM_STATE
 from src import cache
 from src.data import TARGET_REG
-from src.evaluation import (plot_k_curve, plot_n_estimators_curve, plot_pruning_curve,
-                            reg_metrics, results_table, tree_summary)
+from src.evaluation import (plot_k_curve, plot_n_estimators_curve, reg_metrics,
+                            results_table, tree_summary)
 from src.pasos import Etapa, cli
 from src.preprocessing import cargar_reg
 from src.salida import subtitulo, tabla
 
 etapa = Etapa("03", "Regresión de Weight", "regresion",
-              "Árbol, Random Forest y KNN para predecir el peso sin usar NObeyesdad")
+              "Árbol, Random Forest y KNN para predecir el peso sin usar NObeyesdad",
+              globales=("RANDOM_STATE", "datos"))
 
 _estado = {}
 
@@ -157,7 +157,8 @@ def paso_1_datos():
     tabla(d["y_train"].describe().round(2), "Weight en train")
 
 
-@etapa.paso("2", "Modelos, grillas y ajuste con GridSearchCV (tabla con R² ajustado)")
+@etapa.paso("2", "Modelos, grillas y ajuste con GridSearchCV (tabla con R² ajustado)",
+            parametros=("make_models", "_ajustar"))
 def paso_2_modelos():
     for name, (model, grid) in make_models().items():
         subtitulo(name)
@@ -167,7 +168,8 @@ def paso_2_modelos():
     tabla(t, "Resultados: RMSE de CV y métricas en test (MAE, RMSE, R², R²_adj)")
 
 
-@etapa.paso("2.1", "Curva del mejor K de KNN (RMSE de CV vs K)", figuras=1)
+@etapa.paso("2.1", "Curva del mejor K de KNN (RMSE de CV vs K)", figuras=1,
+            parametros=("make_models",))
 def paso_2_1_curva_k():
     fitted, _, _ = modelos()
     fig, ax = plt.subplots(figsize=(9, 5))
@@ -204,7 +206,9 @@ def barrido_n_arboles():
     return cache.obtener("reg_barrido_n_arboles", _barrido_n_arboles)
 
 
-@etapa.paso("2.2", "¿Cuántos árboles? Random Forest con 10, 25, 50, 100, 200, 400 y 800", figuras=1)
+@etapa.paso("2.2", "¿Cuántos árboles? Random Forest con "
+            + ", ".join(map(str, N_ARBOLES[:-1])) + f" y {N_ARBOLES[-1]}", figuras=1,
+            parametros=("N_ARBOLES", "_barrido_n_arboles"))
 def paso_2_2_n_arboles():
     df = barrido_n_arboles()
     tabla(df, "Random Forest (regresión): error y coste según el número de árboles", 4)
@@ -227,7 +231,8 @@ def paso_2_2_n_arboles():
           f"{cv_r.loc[n_suf] - cv_r.loc[n_max]:.4f} kg de RMSE.")
 
 
-@etapa.paso("3", "Tres árboles de regresión: completo, podado y muy podado", figuras=4)
+@etapa.paso("3", "Tres árboles de regresión: completo, podado y muy podado", figuras=4,
+            parametros=("arboles_prepoda",))
 def paso_3_tres_arboles():
     d = datos()
     X = d["X"]
@@ -257,26 +262,8 @@ def paso_3_tres_arboles():
     _pred_vs_real(arboles_prepoda(), titulos, "3_pred_vs_real_tres_arboles")
 
 
-@etapa.paso("3.1", "Postpoda por coste-complejidad (ccp_alpha): R² train/test vs alpha", figuras=1)
-def paso_3_1_postpoda():
-    d = datos()
-    path = arboles_prepoda()["Completo"].cost_complexity_pruning_path(d["X_train"], d["y_train"])
-    alphas = np.unique(path.ccp_alphas)
-    alphas = alphas[alphas > 0][::max(1, len(alphas) // 25)]
-    score_train, score_test = [], []
-    for a in alphas:
-        t = DecisionTreeRegressor(random_state=RANDOM_STATE, ccp_alpha=a).fit(d["X_train"], d["y_train"])
-        score_train.append(r2_score(d["y_train"], t.predict(d["X_train"])))
-        score_test.append(r2_score(d["y_test"], t.predict(d["X_test"])))
-    fig, ax = plt.subplots(figsize=(9, 5))
-    plot_pruning_curve(alphas, score_train, score_test, ax=ax, ylabel="R²")
-    etapa.figura(fig, "3.1_postpoda_ccp_alpha")
-    i_best = int(np.argmax(score_test))
-    print(f"{len(alphas)} valores de alpha | mejor R² test = {score_test[i_best]:.3f} "
-          f"con ccp_alpha = {alphas[i_best]:.2e}")
-
-
-@etapa.paso("4", "Predicho vs real y residuos — modelos principales (test)", figuras=2)
+@etapa.paso("4", "Predicho vs real y residuos — modelos principales (test)", figuras=2,
+            parametros=("make_models",))
 def paso_4_pred_vs_real():
     fitted, results, _ = modelos()
     titulos = {name: (f"{name}\nRMSE={results[name]['test_RMSE']:.2f} kg  "
@@ -296,7 +283,8 @@ def paso_4_pred_vs_real():
     etapa.figura(fig, "4_residuos_modelos")
 
 
-@etapa.paso("5", "Importancia de features (Random Forest)", figuras=1)
+@etapa.paso("5", "Importancia de features (Random Forest)", figuras=1,
+            parametros=("make_models",))
 def paso_5_importancias():
     fitted, _, _ = modelos()
     d = datos()
@@ -310,7 +298,8 @@ def paso_5_importancias():
     etapa.figura(fig, "5_importancias_rf")
 
 
-@etapa.paso("6", "Comparación de modelos y explicación del R² ajustado", figuras=1)
+@etapa.paso("6", "Comparación de modelos y explicación del R² ajustado", figuras=1,
+            parametros=("make_models",))
 def paso_6_comparacion():
     _, _, t = modelos()
     fig, axes = plt.subplots(1, 3, figsize=(18, 4))
