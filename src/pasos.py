@@ -33,16 +33,16 @@ class Paso:
 
     @property
     def ubicacion(self) -> str:
-        """'etapas/e02_clasificacion.py:412': archivo (relativo a la raíz del
-        proyecto) y línea donde empieza la función real de este paso, obtenidos
-        en tiempo de ejecución con inspect.getsourcelines() — nunca se escriben a
-        mano, así que no se desactualizan si el archivo cambia. Formato sin
-        espacios (archivo:línea) para que la terminal integrada de VS Code lo
-        detecte como enlace clickeable."""
+        """'etapas/e02_clasificacion.py:412 (hasta 431)': archivo (relativo a la raíz
+        del proyecto) y líneas donde empieza (el decorador @etapa.paso) y termina la
+        función de este paso, obtenidas en tiempo de ejecución con
+        inspect.getsourcelines() — nunca se escriben a mano, así que no se
+        desactualizan si el archivo cambia. 'archivo:línea' va sin espacios para que
+        la terminal integrada de VS Code lo detecte como enlace clickeable (Ctrl+clic)."""
         try:
             archivo = Path(inspect.getfile(self.fn)).resolve().relative_to(_RAIZ_PROYECTO)
-            _, linea = inspect.getsourcelines(self.fn)
-            return f"{archivo.as_posix()}:{linea}"
+            lineas, inicio = inspect.getsourcelines(self.fn)
+            return f"{archivo.as_posix()}:{inicio} (hasta {inicio + len(lineas) - 1})"
         except (OSError, TypeError, ValueError):
             return ""
 
@@ -89,7 +89,8 @@ class Etapa:
         # Registra el paso en curso: las tablas lo usan para nombrar sus PNG
         # (figures/<etapa>/tablas/<paso>_tablaN_<titulo>.png)
         salida.fijar_contexto(self.carpeta_figuras, p.id)
-        salida.titulo(f"Etapa {self.numero} — {self.nombre}   ·   Paso {p.id}: {p.titulo}")
+        salida.titulo(f"Etapa {self.numero} — {self.nombre}   ·   Paso {p.id}: {p.titulo}"
+                      + (f"\n{p.ubicacion}" if p.ubicacion else ""))
         t0 = time.time()
         p.fn()
         print(f"\n   (paso {p.id} terminado en {time.time() - t0:.1f} s)")
@@ -130,18 +131,23 @@ def cli(etapa: Etapa):
     python etapas/e02_clasificacion.py --todo       -> ejecuta todos los pasos
     python etapas/e02_clasificacion.py --paso 3.4   -> sólo ese paso (se pueden pasar varios)
     python etapas/e02_clasificacion.py --lista      -> lista de pasos
-    Opciones: --sin-ventanas (sólo PNG)  --sin-guardar (sólo ventanas)  --limpiar-cache
+    Por defecto sólo MUESTRA: figuras en ventana y tablas/texto en la consola, sin escribir
+    archivos. Opciones: --guardar (además guarda PNG en figures/ y tablas en
+    resultados_texto/)  --sin-ventanas (no abre ventanas)  --limpiar-cache
     """
     ap = argparse.ArgumentParser(description=f"Etapa {etapa.numero} — {etapa.nombre}")
     ap.add_argument("--paso", nargs="+", metavar="ID", help="id(s) de paso a ejecutar, ej. 3.4")
     ap.add_argument("--todo", action="store_true", help="ejecutar todos los pasos en orden")
     ap.add_argument("--lista", action="store_true", help="listar los pasos y salir")
-    ap.add_argument("--sin-ventanas", action="store_true", help="no abrir ventanas, sólo guardar PNG")
-    ap.add_argument("--sin-guardar", action="store_true", help="no guardar PNG")
+    ap.add_argument("--sin-ventanas", action="store_true", help="no abrir ventanas de gráficas")
+    ap.add_argument("--guardar", action="store_true",
+                    help="guardar también PNG en figures/ y tablas en resultados_texto/")
+    ap.add_argument("--sin-guardar", action="store_true",
+                    help="(por defecto ya no se guarda; se mantiene por compatibilidad)")
     ap.add_argument("--limpiar-cache", action="store_true", help="borrar modelos cacheados antes de empezar")
     args = ap.parse_args()
 
-    salida.configurar(mostrar=not args.sin_ventanas, guardar=not args.sin_guardar)
+    salida.configurar(mostrar=not args.sin_ventanas, guardar=args.guardar and not args.sin_guardar)
     if args.limpiar_cache:
         cache.limpiar()
     if args.lista:

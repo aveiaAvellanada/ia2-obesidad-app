@@ -27,6 +27,8 @@ Pasos (misma numeración que el notebook):
                                          8    Sólo filas reales (sin SMOTE) y sin Weight/Height
 
 Los GridSearch tardan ~40 s la primera vez; después quedan en cache/ y cargan al instante.
+Si cambias un hiperparámetro en este archivo (make_models, N_ARBOLES...) y guardas, se
+recalculan solos la siguiente vez (src/cache.py compara una huella del código).
 """
 import sys
 import time
@@ -313,7 +315,8 @@ def barrido_n_arboles():
     return cache.obtener("clf_barrido_n_arboles", _barrido_n_arboles)
 
 
-@etapa.paso("3.7", "¿Cuántos árboles? Random Forest con 10, 25, 50, 100, 200, 400 y 800", figuras=1)
+@etapa.paso("3.7", "¿Cuántos árboles? Random Forest con "
+            + ", ".join(map(str, N_ARBOLES[:-1])) + f" y {N_ARBOLES[-1]}", figuras=1)
 def paso_3_7_n_arboles():
     df = barrido_n_arboles()
     tabla(df, "Random Forest: rendimiento y coste según el número de árboles", 4)

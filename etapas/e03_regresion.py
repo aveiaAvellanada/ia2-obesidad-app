@@ -203,7 +203,8 @@ def barrido_n_arboles():
     return cache.obtener("reg_barrido_n_arboles", _barrido_n_arboles)
 
 
-@etapa.paso("2.2", "¿Cuántos árboles? Random Forest con 10, 25, 50, 100, 200, 400 y 800", figuras=1)
+@etapa.paso("2.2", "¿Cuántos árboles? Random Forest con "
+            + ", ".join(map(str, N_ARBOLES[:-1])) + f" y {N_ARBOLES[-1]}", figuras=1)
 def paso_2_2_n_arboles():
     df = barrido_n_arboles()
     tabla(df, "Random Forest (regresión): error y coste según el número de árboles", 4)

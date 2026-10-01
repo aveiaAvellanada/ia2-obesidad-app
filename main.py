@@ -3,8 +3,9 @@
 Cómo usarlo:
   1. Abre este archivo en VS Code y pulsa el botón ▶ "Run Python File" (arriba a la derecha),
      o en una terminal:  python main.py
-  2. Elige la etapa (1-5) y luego el paso (ej. 3.4). Se abre una ventana con la gráfica y se
-     guarda un PNG en figures/. Cierra la ventana para continuar.
+  2. Elige la etapa (1-5) y luego el paso (ej. 3.4). Las gráficas se abren en una ventana
+     (ciérrala para continuar) y las tablas salen en la consola. No se escriben archivos;
+     para guardar PNG en figures/ activa [g] en el menú o usa run_all.py.
 
 Atajos directos sin menú:
   python main.py 02 3.4          -> etapa 02, paso 3.4
@@ -32,7 +33,7 @@ def _cargar_etapas():
 
 
 def menu_principal():
-    salida.configurar(mostrar=True, guardar=True)
+    salida.configurar(mostrar=True, guardar=False)
     etapas = _cargar_etapas()
     while True:
         print("\n" + "=" * 70)
@@ -70,11 +71,11 @@ def menu_principal():
 
 def ejecutar_todo():
     """Corre las 5 etapas completas sin abrir ventanas (sólo guarda PNG)."""
-    mostrar_antes = salida.OPCIONES["mostrar"]
+    mostrar_antes, guardar_antes = salida.OPCIONES["mostrar"], salida.OPCIONES["guardar"]
     salida.configurar(mostrar=False, guardar=True)
     for et in _cargar_etapas().values():
         et.ejecutar_todo()
-    salida.configurar(mostrar=mostrar_antes)
+    salida.configurar(mostrar=mostrar_antes, guardar=guardar_antes)
     print("\nListo. Todas las figuras están en figures/<etapa>/")
 
 
@@ -85,8 +86,8 @@ if __name__ == "__main__":
     elif args[0] == "todo":
         ejecutar_todo()
     else:
-        # python main.py 02 3.4 [3.5 ...]
-        salida.configurar(mostrar=True, guardar=True)
+        # python main.py 02 3.4 [3.6 ...]
+        salida.configurar(mostrar=True, guardar=False)
         et = _cargar_etapas()[args[0].zfill(2)]
         for paso_id in args[1:] or [p.id for p in et.pasos]:
             et.ejecutar(paso_id)
