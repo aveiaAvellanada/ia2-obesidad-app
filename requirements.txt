@@ -11,3 +11,6 @@ joblib>=1.4
 # tkinter y PyQt6 >= 6.5 exige la librería del sistema libxcb-cursor0 (sudo apt install
 # libxcb-cursor0); PyQt5 se instala con pip, sin permisos de administrador, y funciona.
 PyQt5>=5.15
+# App web interactiva y pruebas
+streamlit>=1.40
+pytest>=8
