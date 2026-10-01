@@ -17,7 +17,7 @@ Dos variantes:
   tiene fuga de datos (ver etapa 01). B mide cuánto predicen por sí solos los hábitos.
 
 Pasos (misma numeración que el notebook):
-  1    Datos y split                     3.5  Postpoda (ccp_alpha)
+  1    Datos y split
   2    Modelos y grillas                 3.6  Curva del mejor K de KNN (A)
   3    Variante A: tabla de resultados   4    Variante B: resultados, reportes, matrices, importancias
   3.1  Reportes + matrices de confusión  4.1  Curva del mejor K de KNN (B)
@@ -52,8 +52,7 @@ from config import RANDOM_STATE
 from src import cache
 from src.data import TARGET_CLF
 from src.evaluation import (clf_metrics, metricas_por_clase, plot_confusion, plot_k_curve,
-                            plot_n_estimators_curve, plot_pruning_curve,
-                            results_table, tree_summary)
+                            plot_n_estimators_curve, results_table, tree_summary)
 from src.pasos import Etapa, cli
 from src.preprocessing import CLASS_ORDER, cargar_clf
 from src.salida import subtitulo, tabla
@@ -271,27 +270,6 @@ def paso_3_4_tres_arboles():
     etapa.figura(fig, "3.4_matrices_tres_arboles")
     for nombre, y_pred in preds.items():
         tabla_por_clase(y_test, y_pred, f"Métricas por clase — árbol {nombre}")
-
-
-@etapa.paso("3.5", "Postpoda por coste-complejidad (ccp_alpha): accuracy train/test vs alpha", figuras=1)
-def paso_3_5_postpoda():
-    d = datos()
-    path = arboles_prepoda()["Completo"].cost_complexity_pruning_path(d["X_train"], d["y_train"])
-    alphas = np.unique(path.ccp_alphas)
-    alphas = alphas[alphas > 0][::max(1, len(alphas) // 25)]   # ~25 valores
-
-    score_train, score_test = [], []
-    for a in alphas:
-        t = DecisionTreeClassifier(random_state=RANDOM_STATE, ccp_alpha=a).fit(d["X_train"], d["y_train"])
-        score_train.append(accuracy_score(d["y_train"], t.predict(d["X_train"])))
-        score_test.append(accuracy_score(d["y_test"], t.predict(d["X_test"])))
-
-    fig, ax = plt.subplots(figsize=(9, 5))
-    plot_pruning_curve(alphas, score_train, score_test, ax=ax, ylabel="accuracy")
-    etapa.figura(fig, "3.5_postpoda_ccp_alpha")
-    i_best = int(np.argmax(score_test))
-    print(f"{len(alphas)} valores de alpha | mejor accuracy test = {score_test[i_best]:.3f} "
-          f"con ccp_alpha = {alphas[i_best]:.2e}")
 
 
 @etapa.paso("3.6", "Curva del mejor K de KNN — variante A", figuras=1)

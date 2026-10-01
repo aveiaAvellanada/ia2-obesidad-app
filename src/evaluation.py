@@ -126,38 +126,6 @@ def plot_k_curve(cv_results, param="knn__n_neighbors", ylabel="macro-F1 (CV)", a
     return ax, mejor_k
 
 
-def plot_pruning_curve(alphas, score_train, score_test, ax=None, ylabel="accuracy"):
-    """Curva de score en train y test vs ccp_alpha (eje x en escala log).
-    Dos líneas rotuladas 'train' y 'test' + leyenda."""
-    alphas = np.asarray(alphas, dtype=float)
-    score_train = np.asarray(score_train, dtype=float)
-    score_test = np.asarray(score_test, dtype=float)
-
-    if ax is None:
-        _, ax = plt.subplots(figsize=(8, 4.5))
-    ax.plot(alphas, score_train, marker="o", ms=5, lw=2, color=COLOR_TRAIN, label="train")
-    ax.plot(alphas, score_test, marker="s", ms=5, lw=2, color=COLOR_TEST, label="test")
-
-    # Mejor alpha según test (primer máximo)
-    i_best = int(np.argmax(score_test))
-    ax.axvline(alphas[i_best], ls="--", lw=1.2, color="gray")
-    # Esquina inferior izquierda: las curvas bajan al crecer alpha, así que queda vacía
-    _annotate_optimum(
-        ax,
-        f"mejor test: α = {alphas[i_best]:.2e}\n{ylabel} = {score_test[i_best]:.3f}",
-        xy=(alphas[i_best], score_test[i_best]),
-        text_xy=(0.05, 0.08),
-        va="bottom",
-    )
-    ax.set_xscale("log")
-    ax.set_xlabel("ccp_alpha (escala log)")
-    ax.set_ylabel(ylabel)
-    ax.set_title(f"Postpoda: {ylabel} en train y test según ccp_alpha")
-    ax.legend()
-    ax.grid(alpha=0.3, which="both")
-    return ax
-
-
 def plot_confusion(y_true, y_pred, labels, title, ax=None, normalize=False, vmin=None, vmax=None):
     """Matriz de confusión. vmin/vmax fijan la escala de color (útil para comparar
     varios paneles con la misma escala)."""
