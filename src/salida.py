@@ -4,7 +4,8 @@ Hay dos modos, controlados por `configurar()`:
 - mostrar=True  -> cada figura abre una VENTANA (hay que cerrarla para seguir).
 - guardar=True  -> cada figura se guarda como PNG en figures/<etapa>/<nombre>.png
 
-`run_all.py` usa mostrar=False (sólo guarda). El menú de `main.py` usa ambos.
+El menú de cada etapa y el de `main.py` sólo MUESTRAN (ventanas + consola, sin escribir
+archivos); `run_all.py` y la opción --guardar son los que guardan.
 
 TABLAS COMO FIGURA
 ------------------
@@ -74,10 +75,11 @@ def configurar(mostrar: bool | None = None, guardar: bool | None = None,
             matplotlib.use("QtAgg")
         else:
             print("[aviso] No se pudo iniciar el backend gráfico (QtAgg). Las gráficas NO se abrirán "
-                  "en ventana; sólo se guardarán como PNG en figures/.\n"
+                  "en ventana; se guardarán como PNG en figures/ para no perderlas.\n"
                   "        Revisa que PyQt5 esté instalado en el .venv (pip install -r requirements.txt)\n"
                   "        y que estés en una sesión con pantalla (no por SSH sin -X).")
             OPCIONES["mostrar"] = False
+            OPCIONES["guardar"] = True   # sin ventana ni PNG la figura se perdería
             matplotlib.use("Agg")
     else:
         matplotlib.use("Agg")

@@ -36,7 +36,8 @@ from src.preprocessing import CLASS_ORDER, build_datasets
 from src.salida import subtitulo, tabla
 
 etapa = Etapa("01", "EDA y preprocesamiento", "eda",
-              "Exploración del dataset, chequeo de fuga de datos y generación de clf.csv / reg.csv")
+              "Exploración del dataset, chequeo de fuga de datos y generación de clf.csv / reg.csv",
+              globales=("RANDOM_STATE",))
 
 # ----------------------------------------------------------------------------
 # Estado compartido entre pasos (se carga una sola vez por sesión)
@@ -158,7 +159,8 @@ def paso_2_4_correlaciones():
 # ----------------------------------------------------------------------------
 # 3. Preprocesamiento -> clf.csv y reg.csv
 # ----------------------------------------------------------------------------
-@etapa.paso("3", "Preprocesamiento: encoding, duplicados y generación de clf.csv / reg.csv")
+@etapa.paso("3", "Preprocesamiento: encoding, duplicados y generación de clf.csv / reg.csv",
+            parametros=("build_datasets",))
 def paso_3_preprocesamiento():
     df_clf, df_reg = build_datasets(df_raw())
     print("Clasificación:", df_clf.shape, "| target:", TARGET_CLF)

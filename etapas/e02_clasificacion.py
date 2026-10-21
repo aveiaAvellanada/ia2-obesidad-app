@@ -17,7 +17,7 @@ Dos variantes:
   tiene fuga de datos (ver etapa 01). B mide cuánto predicen por sí solos los hábitos.
 
 Pasos (misma numeración que el notebook):
-  1    Datos y split                     3.5  Postpoda (ccp_alpha)
+  1    Datos y split
   2    Modelos y grillas                 3.6  Curva del mejor K de KNN (A)
   3    Variante A: tabla de resultados   4    Variante B: resultados, reportes, matrices, importancias
   3.1  Reportes + matrices de confusión  4.1  Curva del mejor K de KNN (B)
@@ -27,6 +27,8 @@ Pasos (misma numeración que el notebook):
                                          8    Sólo filas reales (sin SMOTE) y sin Weight/Height
 
 Los GridSearch tardan ~40 s la primera vez; después quedan en cache/ y cargan al instante.
+Si cambias un hiperparámetro en este archivo (make_models, N_ARBOLES...) y guardas, se
+recalculan solos la siguiente vez (src/cache.py compara una huella del código).
 """
 import sys
 import time
@@ -52,14 +54,14 @@ from config import RANDOM_STATE
 from src import cache
 from src.data import TARGET_CLF
 from src.evaluation import (clf_metrics, metricas_por_clase, plot_confusion, plot_k_curve,
-                            plot_n_estimators_curve, plot_pruning_curve,
-                            results_table, tree_summary)
+                            plot_n_estimators_curve, results_table, tree_summary)
 from src.pasos import Etapa, cli
 from src.preprocessing import CLASS_ORDER, cargar_clf
 from src.salida import subtitulo, tabla
 
 etapa = Etapa("02", "Clasificación de NObeyesdad", "clasificacion",
-              "Árbol, Random Forest y KNN en dos variantes (con y sin Weight/Height)")
+              "Árbol, Random Forest y KNN en dos variantes (con y sin Weight/Height)",
+              globales=("RANDOM_STATE", "datos", "cv_estratificado"))
 
 DROP_WH = ["Weight", "Height"]   # columnas que se quitan en la variante B
 
@@ -167,7 +169,8 @@ def paso_1_datos():
 # ----------------------------------------------------------------------------
 # 2. Modelos y grillas
 # ----------------------------------------------------------------------------
-@etapa.paso("2", "Definición de modelos y grillas de hiperparámetros")
+@etapa.paso("2", "Definición de modelos y grillas de hiperparámetros",
+            parametros=("make_models",))
 def paso_2_modelos():
     for name, (model, grid) in make_models().items():
         subtitulo(name)
@@ -179,13 +182,15 @@ def paso_2_modelos():
 # ----------------------------------------------------------------------------
 # 3. Variante A
 # ----------------------------------------------------------------------------
-@etapa.paso("3", "Variante A (todas las features): GridSearch y tabla de resultados")
+@etapa.paso("3", "Variante A (todas las features): GridSearch y tabla de resultados",
+            parametros=("make_models", "fit_evaluate"))
 def paso_3_variante_A():
     _, tabla_A, _, _ = variante("A")
     tabla(tabla_A, "Variante A — macro-F1 en CV y métricas en test")
 
 
-@etapa.paso("3.1", "Variante A: reportes por clase y matrices de confusión (test)", figuras=1)
+@etapa.paso("3.1", "Variante A: reportes por clase y matrices de confusión (test)", figuras=1,
+            parametros=("make_models",))
 def paso_3_1_reportes_A():
     fitted, _, _, X_te = variante("A")
     y_test = datos()["y_test"]
@@ -207,7 +212,8 @@ def paso_3_1_reportes_A():
         tabla_por_clase(y_test, gs.predict(X_te), f"Métricas por clase — {name} (A)")
 
 
-@etapa.paso("3.2", "Variante A: importancia de features del Random Forest", figuras=1)
+@etapa.paso("3.2", "Variante A: importancia de features del Random Forest", figuras=1,
+            parametros=("make_models",))
 def paso_3_2_importancias_A():
     fitted, _, X_tr, _ = variante("A")
     rf_A = fitted["Random Forest"].best_estimator_
@@ -219,7 +225,8 @@ def paso_3_2_importancias_A():
     etapa.figura(fig, "3.2_importancias_rf_A")
 
 
-@etapa.paso("3.3", "Variante A: árbol de decisión elegido por GridSearch (primeros 3 niveles)", figuras=1)
+@etapa.paso("3.3", "Variante A: árbol de decisión elegido por GridSearch (primeros 3 niveles)", figuras=1,
+            parametros=("make_models",))
 def paso_3_3_arbol_gridsearch():
     fitted, _, X_tr, _ = variante("A")
     tree_A = fitted["Árbol de decisión"].best_estimator_
@@ -231,7 +238,8 @@ def paso_3_3_arbol_gridsearch():
     etapa.figura(fig, "3.3_arbol_gridsearch_A")
 
 
-@etapa.paso("3.4", "Tres árboles: completo, podado y muy podado (prepoda)", figuras=4)
+@etapa.paso("3.4", "Tres árboles: completo, podado y muy podado (prepoda)", figuras=4,
+            parametros=("arboles_prepoda",))
 def paso_3_4_tres_arboles():
     d = datos()
     X, y_train, y_test = d["X"], d["y_train"], d["y_test"]
@@ -273,28 +281,8 @@ def paso_3_4_tres_arboles():
         tabla_por_clase(y_test, y_pred, f"Métricas por clase — árbol {nombre}")
 
 
-@etapa.paso("3.5", "Postpoda por coste-complejidad (ccp_alpha): accuracy train/test vs alpha", figuras=1)
-def paso_3_5_postpoda():
-    d = datos()
-    path = arboles_prepoda()["Completo"].cost_complexity_pruning_path(d["X_train"], d["y_train"])
-    alphas = np.unique(path.ccp_alphas)
-    alphas = alphas[alphas > 0][::max(1, len(alphas) // 25)]   # ~25 valores
-
-    score_train, score_test = [], []
-    for a in alphas:
-        t = DecisionTreeClassifier(random_state=RANDOM_STATE, ccp_alpha=a).fit(d["X_train"], d["y_train"])
-        score_train.append(accuracy_score(d["y_train"], t.predict(d["X_train"])))
-        score_test.append(accuracy_score(d["y_test"], t.predict(d["X_test"])))
-
-    fig, ax = plt.subplots(figsize=(9, 5))
-    plot_pruning_curve(alphas, score_train, score_test, ax=ax, ylabel="accuracy")
-    etapa.figura(fig, "3.5_postpoda_ccp_alpha")
-    i_best = int(np.argmax(score_test))
-    print(f"{len(alphas)} valores de alpha | mejor accuracy test = {score_test[i_best]:.3f} "
-          f"con ccp_alpha = {alphas[i_best]:.2e}")
-
-
-@etapa.paso("3.6", "Curva del mejor K de KNN — variante A", figuras=1)
+@etapa.paso("3.6", "Curva del mejor K de KNN — variante A", figuras=1,
+            parametros=("make_models",))
 def paso_3_6_curva_k_A():
     fitted, _, _, _ = variante("A")
     fig, ax = plt.subplots(figsize=(9, 5))
@@ -335,7 +323,9 @@ def barrido_n_arboles():
     return cache.obtener("clf_barrido_n_arboles", _barrido_n_arboles)
 
 
-@etapa.paso("3.7", "¿Cuántos árboles? Random Forest con 10, 25, 50, 100, 200, 400 y 800", figuras=1)
+@etapa.paso("3.7", "¿Cuántos árboles? Random Forest con "
+            + ", ".join(map(str, N_ARBOLES[:-1])) + f" y {N_ARBOLES[-1]}", figuras=1,
+            parametros=("N_ARBOLES", "_barrido_n_arboles"))
 def paso_3_7_n_arboles():
     df = barrido_n_arboles()
     tabla(df, "Random Forest: rendimiento y coste según el número de árboles", 4)
@@ -361,7 +351,8 @@ def paso_3_7_n_arboles():
 # ----------------------------------------------------------------------------
 # 4. Variante B
 # ----------------------------------------------------------------------------
-@etapa.paso("4", "Variante B (sin Weight/Height): resultados, reportes, matrices e importancias", figuras=2)
+@etapa.paso("4", "Variante B (sin Weight/Height): resultados, reportes, matrices e importancias", figuras=2,
+            parametros=("make_models", "DROP_WH"))
 def paso_4_variante_B():
     fitted, tabla_B, X_tr, X_te = variante("B")
     y_test = datos()["y_test"]
@@ -393,7 +384,8 @@ def paso_4_variante_B():
     etapa.figura(fig, "4_importancias_rf_B")
 
 
-@etapa.paso("4.1", "Curva del mejor K de KNN — variante B", figuras=1)
+@etapa.paso("4.1", "Curva del mejor K de KNN — variante B", figuras=1,
+            parametros=("make_models", "DROP_WH"))
 def paso_4_1_curva_k_B():
     fitted, _, _, _ = variante("B")
     fig, ax = plt.subplots(figsize=(9, 5))
@@ -405,7 +397,8 @@ def paso_4_1_curva_k_B():
 # ----------------------------------------------------------------------------
 # 5. Comparación final
 # ----------------------------------------------------------------------------
-@etapa.paso("5", "Comparación final: variante A vs variante B", figuras=1)
+@etapa.paso("5", "Comparación final: variante A vs variante B", figuras=1,
+            parametros=("make_models", "DROP_WH"))
 def paso_5_comparacion():
     _, tabla_A, _, _ = variante("A")
     _, tabla_B, _, _ = variante("B")
@@ -452,7 +445,8 @@ def _con_ruido(X_tr, X_te, nivel):
     return X_tr_n, X_te_n
 
 
-@etapa.paso("7", "Robustez ante ruido sintético (jittering) en variante B: 5% y barrido 0–20%", figuras=1)
+@etapa.paso("7", "Robustez ante ruido sintético (jittering) en variante B: 5% y barrido 0–20%", figuras=1,
+            parametros=("_modelos_robustez", "_con_ruido", "HABIT_NUM_COLS", "RANGOS_HABITOS"))
 def paso_7_ruido():
     d = datos()
     y_train, y_test = d["y_train"], d["y_test"]
@@ -594,7 +588,8 @@ def evaluacion_reales():
     return cache.obtener("clf_filas_reales", _evaluacion_reales)
 
 
-@etapa.paso("8", "Sólo filas reales (sin SMOTE) y sin Weight/Height: el caso sin datos sintéticos", figuras=1)
+@etapa.paso("8", "Sólo filas reales (sin SMOTE) y sin Weight/Height: el caso sin datos sintéticos", figuras=1,
+            parametros=("_modelos_reales", "_cv_reales", "_evaluacion_reales", "COLS_ENCUESTA", "GRUPOS_3"))
 def paso_8_filas_reales():
     ev = evaluacion_reales()
     B7, B3, A7 = ev["B7"], ev["B3"], ev["A7"]

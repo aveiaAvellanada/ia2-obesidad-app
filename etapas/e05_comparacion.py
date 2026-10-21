@@ -118,7 +118,8 @@ def mejores():
 # ----------------------------------------------------------------------------
 # 1. Resultados
 # ----------------------------------------------------------------------------
-@etapa.paso("1", "Resultados: tablas por caso, mejor modelo de cada caso y figura comparativa", figuras=1)
+@etapa.paso("1", "Resultados: tablas por caso, mejor modelo de cada caso y figura comparativa", figuras=1,
+            parametros=("NIVEL_RUIDO", "e02.make_models", "e03.make_models", "e04.fit_kmeans"))
 def paso_1_resultados():
     r = resultados()
     tabla(r["clf_A"], "Clasificación A (todas las features)")

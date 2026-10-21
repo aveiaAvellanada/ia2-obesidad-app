@@ -54,7 +54,8 @@ from src.preprocessing import CLASS_ORDER, NUMERIC_COLS, cargar_clf
 from src.salida import subtitulo, tabla
 
 etapa = Etapa("04", "Clustering K-Means", "clustering",
-              "Elección de K con 5 métodos, K=7 vs clases reales, con/sin clase, sólo numéricas")
+              "Elección de K con 5 métodos, K=7 vs clases reales, con/sin clase, sólo numéricas",
+              globales=("RANDOM_STATE", "datos", "fit_kmeans"))
 
 K_RANGE = list(range(2, 13))
 _estado = {}
@@ -253,13 +254,15 @@ def paso_1_datos():
     print("X:", d["X_scaled"].shape, "| columnas:", d["X"].columns.tolist())
 
 
-@etapa.paso("2", "Barrido de K ∈ [2, 12]: inercia, silueta, Calinski-Harabasz y Davies-Bouldin")
+@etapa.paso("2", f"Barrido de K ∈ [{K_RANGE[0]}, {K_RANGE[-1]}]: inercia, silueta, Calinski-Harabasz y Davies-Bouldin",
+            parametros=("K_RANGE", "_barrido"))
 def paso_2_barrido():
     b = barrido("base")
     tabla(b["metrics"], "Métricas internas por K", 3)
 
 
-@etapa.paso("2.1", "Método del codo (con detección automática del codo)", figuras=1)
+@etapa.paso("2.1", "Método del codo (con detección automática del codo)", figuras=1,
+            parametros=("K_RANGE", "knee_point"))
 def paso_2_1_codo():
     b = barrido("base")
     k_elbow = b["resumen"]["Codo (inercia)"]
@@ -274,7 +277,8 @@ def paso_2_1_codo():
     print("K por método del codo:", k_elbow)
 
 
-@etapa.paso("2.2", "Silueta, Calinski-Harabasz y Davies-Bouldin vs K", figuras=1)
+@etapa.paso("2.2", "Silueta, Calinski-Harabasz y Davies-Bouldin vs K", figuras=1,
+            parametros=("K_RANGE", "_barrido"))
 def paso_2_2_sil_ch_db():
     b = barrido("base")
     m, r = b["metrics"], b["resumen"]
@@ -293,7 +297,8 @@ def paso_2_2_sil_ch_db():
           f"| Davies-Bouldin: {r['Davies-Bouldin (min)']}")
 
 
-@etapa.paso("2.3", "Estadístico gap", figuras=1)
+@etapa.paso("2.3", "Estadístico gap", figuras=1,
+            parametros=("K_RANGE", "gap_statistic"))
 def paso_2_3_gap():
     b = barrido("base")
     gap_df, k_gap = b["gap_df"], b["k_gap"]
@@ -310,7 +315,8 @@ def paso_2_3_gap():
     tabla(gap_df, "gap(K) y s_k", 3)
 
 
-@etapa.paso("2.4", "Comparación de los 5 métodos para elegir K")
+@etapa.paso("2.4", "Comparación de los 5 métodos para elegir K",
+            parametros=("K_RANGE", "_barrido"))
 def paso_2_4_comparacion():
     tabla(barrido("base")["resumen"], "K óptimo según cada método")
 
@@ -318,7 +324,8 @@ def paso_2_4_comparacion():
 # ----------------------------------------------------------------------------
 # 3. K = 7 vs clases reales
 # ----------------------------------------------------------------------------
-@etapa.paso("3", "K-Means con K=7 vs clases reales: silueta, ARI, NMI")
+@etapa.paso("3", "K-Means con K=7 vs clases reales: silueta, ARI, NMI",
+            parametros=("km7",))
 def paso_3_k7():
     d = datos()
     labels7 = km7().labels_
@@ -327,7 +334,8 @@ def paso_3_k7():
     print(f"NMI  (clusters vs NObeyesdad): {normalized_mutual_info_score(d['y_true'], labels7):.3f}")
 
 
-@etapa.paso("3.1", "Matriz de confusión clusters × clases (tabla de contingencia)", figuras=1)
+@etapa.paso("3.1", "Matriz de confusión clusters × clases (tabla de contingencia)", figuras=1,
+            parametros=("km7", "analizar_clustering"))
 def paso_3_1_contingencia():
     ct = analisis_base()["ct"]
     tabla(ct, "Clases reales (filas) vs clusters K=7 (columnas)", 0)
@@ -336,7 +344,8 @@ def paso_3_1_contingencia():
     etapa.figura(fig, "3.1_contingencia_k7")
 
 
-@etapa.paso("3.2", "Matriz con clusters reasignados a clases (algoritmo húngaro)", figuras=1)
+@etapa.paso("3.2", "Matriz con clusters reasignados a clases (algoritmo húngaro)", figuras=1,
+            parametros=("km7", "analizar_clustering"))
 def paso_3_2_hungaro():
     an = analisis_base()
     fig, ax = plt.subplots(figsize=(9, 7))
@@ -349,7 +358,8 @@ def paso_3_2_hungaro():
           "Métricas por clase — K=7 sin la clase", 3)
 
 
-@etapa.paso("3.3", "¿Qué separa a cada cluster? Centroides en unidades originales")
+@etapa.paso("3.3", "¿Qué separa a cada cluster? Centroides en unidades originales",
+            parametros=("km7",))
 def paso_3_3_centroides():
     d = datos()
     an = analisis_base()
@@ -363,7 +373,8 @@ def paso_3_3_centroides():
                      "MTRANS_Public_Transportation"]], "Centroides (K=7) en unidades originales", 2)
 
 
-@etapa.paso("3.4", "Visualización 2D (PCA): clusters K=7 vs clases reales", figuras=1)
+@etapa.paso("3.4", "Visualización 2D (PCA): clusters K=7 vs clases reales", figuras=1,
+            parametros=("km7", "_pca_2d"))
 def paso_3_4_pca():
     _pca_2d(datos()["X_scaled"], km7().labels_, "Clusters K-Means (K=7)", "3.4_pca_2d")
 
@@ -371,13 +382,15 @@ def paso_3_4_pca():
 # ----------------------------------------------------------------------------
 # 4. Con la columna de clase (ejercicio académico)
 # ----------------------------------------------------------------------------
-@etapa.paso("4", "Variantes con la columna de clase: ordinal (21 cols) y one-hot (27 cols)")
+@etapa.paso("4", "Variantes con la columna de clase: ordinal (21 cols) y one-hot (27 cols)",
+            parametros=("con_clase",))
 def paso_4_con_clase():
     c = con_clase()
     print(f"X_con_ord: {c['X_ord'].shape} | X_con_oh: {c['X_oh'].shape}")
 
 
-@etapa.paso("4.1", "Elección de K para la variante con clase ordinal (5 métodos)", figuras=1)
+@etapa.paso("4.1", "Elección de K para la variante con clase ordinal (5 métodos)", figuras=1,
+            parametros=("K_RANGE", "con_clase"))
 def paso_4_1_k_con_clase():
     b = barrido("ord")
     m, r, gap_df, k_gap = b["metrics"], b["resumen"], b["gap_df"], b["k_gap"]
@@ -408,7 +421,8 @@ def paso_4_1_k_con_clase():
     tabla(r.rename("K óptimo (con clase ordinal)"), "K óptimo por método (con clase ordinal)")
 
 
-@etapa.paso("4.2", "K=7 con clase: tablas de contingencia crudas y matrices mapeadas", figuras=2)
+@etapa.paso("4.2", "K=7 con clase: tablas de contingencia crudas y matrices mapeadas", figuras=2,
+            parametros=("con_clase",))
 def paso_4_2_k7_con_clase():
     c = con_clase()
     fig, axes = plt.subplots(1, 2, figsize=(18, 7))
@@ -428,7 +442,8 @@ def paso_4_2_k7_con_clase():
               f"Métricas por clase — K=7 con clase {nombre}", 3)
 
 
-@etapa.paso("4.3", "Tabla comparativa final: sin clase vs con clase (ordinal / one-hot)")
+@etapa.paso("4.3", "Tabla comparativa final: sin clase vs con clase (ordinal / one-hot)",
+            parametros=("km7", "con_clase"))
 def paso_4_3_tabla_comparativa():
     c = con_clase()
     df_comp = pd.DataFrame({
@@ -439,7 +454,8 @@ def paso_4_3_tabla_comparativa():
     tabla(df_comp, "Comparativa de clustering (K=7)")
 
 
-@etapa.paso("4.4", "Visualización 2D (PCA) para la variante con clase ordinal", figuras=1)
+@etapa.paso("4.4", "Visualización 2D (PCA) para la variante con clase ordinal", figuras=1,
+            parametros=("con_clase", "_pca_2d"))
 def paso_4_4_pca_con_clase():
     c = con_clase()
     _pca_2d(c["X_ord_scaled"], c["km7_ord"].labels_, "Clusters K-Means K=7 (con clase ordinal)",
@@ -449,7 +465,8 @@ def paso_4_4_pca_con_clase():
 # ----------------------------------------------------------------------------
 # 5. Sólo numéricas
 # ----------------------------------------------------------------------------
-@etapa.paso("5", "Variante complementaria: sólo las 8 features numéricas", figuras=2)
+@etapa.paso("5", "Variante complementaria: sólo las 8 features numéricas", figuras=2,
+            parametros=("K_RANGE", "solo_numericas"))
 def paso_5_solo_numericas():
     n = solo_numericas()
     b = barrido("num")
